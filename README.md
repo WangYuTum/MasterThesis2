@@ -9,11 +9,33 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 
 ## Backbone
 * ResNet-50-v2 pre-trained on ImageNet (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
-* Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layera are initialised using truncated normal distribution.
-* Train the above FPN on Object Detection Dataset to verify correctness.
-* Extend the above FPN by adding additional cross-correlation layers.
-* Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
-consecutive frames.
+* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.variance_scaling_initializer().
+* (TODO)Train the above FPN on Object Detection Dataset to verify correctness (Multi-GPU).
+* (TODO)Extend the above FPN by adding additional cross-correlation layers.
+* (TODO)Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
+consecutive frames (Multi-GPU).
+
+
+## Tensorflow
+* TF version = 1.12.0
+* CUDA 9.0, cuNDD >= 7.2
+* (Optional) NCCL 2.2 for multi-gpu
+
+## Notes on Multi-GPU (TF_version = 1.12.0)
+* NCCL 2.2 is a must
+* All model variables (convolution kernels, biases, dense weights, batch_norm gammas and betas) are created on CPU using tf.get_variable explicitly. All model parameters
+are shared across GPUs (but not graphs/operations which are specified via tf.name_scope)
+* Moving statistics are only created and updated locally on the 1st tower (tower_0)
+* Specify tf.name_scope when building models on different towers (since different towers need to execute different graphs/operations)
+
+## Batch Normalization
+* L2 regularizer on gamma/beta ?
+
+
+## TODO lists
+* Load pre-trained model on ImageNet
+    * Verify validation on single GPU implementation
+    * Verify validation on Multi-GPU implementation
 
 
 

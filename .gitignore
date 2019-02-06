@@ -2,7 +2,7 @@
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
 
 # Python Notebook
-Notebook/.ipynb_checkpoints/
+notebook/.ipynb_checkpoints/
 
 # data
 data/
