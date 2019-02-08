@@ -7,14 +7,14 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-import nn
+from . import nn
 import sys
 
 
 class ResNet():
     def __init__(self, params):
 
-        self.data_format_ = params.get('data_format', None)
+        self.data_format_ = params.get('data_format', 'channels_first')
         self.batch_ = params.get('batch', 1)
         self.l2_weight_ = params.get('l2_weight', 0.0002)
         self.init_lr_ = params.get('init_lr', 1e-5)
@@ -98,7 +98,7 @@ class ResNet():
 
             ############################ Resnet stages C2 ~ C5 ##################################
             for stage_id in range(2, 6):
-                inputs = res_stage(inputs=inputs, num_filters=self.num_filters_[stage_id-2],
+                inputs = self.res_stage(inputs=inputs, num_filters=self.num_filters_[stage_id-2],
                                    stage_num=self.stage_number_[stage_id-2],
                                    num_blocks=self.num_blocks_[stage_id-2],
                                    stride=self.res_strides_[stage_id-2],
@@ -111,7 +111,7 @@ class ResNet():
                 inputs = tf.nn.relu(inputs)
 
                 axes = [2, 3]
-                inputs = tf.reduce_mean(inputs, axes, keep_dims=True)
+                inputs = tf.reduce_mean(inputs, axes, keepdims=True)
                 inputs = tf.reshape(inputs, [-1, 2048])
                 inputs = nn.dense_layer(inputs=inputs, weight_size=[2048, 1001], l2_decay=self.l2_weight_, training=training)
 

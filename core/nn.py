@@ -6,8 +6,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
+import re
 
 
 def get_var_cpu_with_decay(name, shape, l2_decay, initializer, training):
@@ -74,7 +76,8 @@ def conv_layer(inputs, filters, kernel_size, stride, l2_decay, training, data_fo
     strides = [1, 1, stride, stride] if data_format == 'channels_first' else [1, stride, stride, 1]
 
     kernel = get_var_cpu_with_decay('kernel', [kernel_size, kernel_size, filters[0], filters[1]],
-                                       l2_decay, tf.variance_scaling_initializer(), training)
+                                       l2_decay, tf.glorot_uniform_initializer(), training)
+    print('Create {0}, {1}'.format(re.sub(':0', '', kernel.name), [kernel_size, kernel_size, filters[0], filters[1]]))
     outputs = tf.nn.conv2d(input=inputs, filter=kernel, strides=strides, padding=padding,
                            use_cudnn_on_gpu=True, data_format=data_format)
 
@@ -106,9 +109,11 @@ def dense_layer(inputs, weight_size, l2_decay, training):
 
     with tf.variable_scope('dense'):
         weight_mat = get_var_cpu_with_decay(name='kernel', shape=weight_size, l2_decay=l2_decay,
-                                            initializer=tf.variance_scaling_initializer(), training=training)
+                                            initializer=tf.glorot_uniform_initializer(), training=training)
         bias_vec = get_var_cpu_no_decay(name='bias', shape=weight_size[1], initializer=tf.zeros_initializer(),
                                         training=training)
+        print('Create {0}, {1}'.format(weight_mat.name, weight_size))
+        print('Create {0}, {1}'.format(bias_vec.name, [weight_size[1]]))
     inputs = tf.linalg.matmul(inputs, weight_mat)
     inputs = tf.add(inputs, bias_vec)
     inputs = tf.nn.relu(inputs)
@@ -189,13 +194,17 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
     if not training:
         moving_mean = get_var_cpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
                                            training=False)
+        print('Create {0}, {1}'.format(moving_mean.name, [num_filters]))
         moving_mean = tf.reshape(moving_mean, new_shape) # tf.nn.batch_normalization() requires full shape
         moving_variance = get_var_cpu_no_decay(name='moving_variance', shape=[num_filters], initializer=tf.constant_initializer(1),
                                            training=False)
+        print('Create {0}, {1}'.format(moving_variance.name, [num_filters]))
         moving_variance = tf.reshape(moving_variance, new_shape)
         beta = get_var_cpu_no_decay(name='beta', shape=[num_filters], initializer=tf.zeros_initializer(), training=False)
+        print('Create {0}, {1}'.format(beta.name, [num_filters]))
         beta = tf.reshape(beta, new_shape)
         gamma = get_var_cpu_no_decay(name='gamma', shape=[num_filters], initializer=tf.ones_initializer(), training=False)
+        print('Create {0}, {1}'.format(gamma.name, [num_filters]))
         gamma = tf.reshape(gamma, new_shape)
 
         # normalize the inputs using global/moving statistics
@@ -210,12 +219,16 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
         #   * define ops to compute moving_mean, moving_var (they only need to be updated for each iteration, and used during inference)
         moving_mean = get_var_gpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
                                            training=False)
+        print('Create {0}, {1}'.format(moving_mean.name, [num_filters]))
         moving_variance = get_var_gpu_no_decay(name='moving_variance', shape=[num_filters], initializer=tf.constant_initializer(1),
                                                training=False)
+        print('Create {0}, {1}'.format(moving_variance.name, [num_filters]))
         beta = get_var_cpu_no_decay(name='beta', shape=[num_filters], initializer=tf.zeros_initializer(), training=True)
+        print('Create {0}, {1}'.format(beta.name, [num_filters]))
         gamma = get_var_cpu_no_decay(name='gamma', shape=[num_filters], initializer=tf.ones_initializer(), training=True)
+        print('Create {0}, {1}'.format(gamma.name, [num_filters]))
         # compute local batch mean, var and update moving_mean, moving_var
-        batch_mean, batch_variance = tf.nn.moments(inputs, axes=[0, 2, 3], keep_dims=False) # produces two scalars
+        batch_mean, batch_variance = tf.nn.moments(inputs, axes=[0, 2, 3], keepdims=False) # produces two scalars
         update_mean_op = moving_averages.assign_moving_average(moving_mean, batch_mean, momentum)
         update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
         # in this case, moving statistic will be updated here before the actual batch norm execution

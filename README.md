@@ -18,7 +18,7 @@ consecutive frames (Multi-GPU).
 
 ## Tensorflow
 * TF version = 1.12.0
-* CUDA 9.0, cuNDD >= 7.2
+* CUDA 9.0, cuDNN >= 7.2
 * (Optional) NCCL 2.2 for multi-gpu
 
 ## Notes on Multi-GPU (TF_version = 1.12.0)
