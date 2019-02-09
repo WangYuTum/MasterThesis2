@@ -1,83 +1,102 @@
 '''
-This file takes ImageNet data dir, some flags and output dir, and generates train/val .tfrecords files
+The files generates ImageNet train/val tfrecords.
 '''
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
 import sys, os
+import tensorflow as tf
+import glob.glob
 from argparse import ArgumentParser
-
-# default args
-IMGNET_DIR = '/work/wangyu/imagenet'
-TFRECORD_TRAIN_DIR = '/work/wangyu/imagenet/tfrecord_train'
-TFRECORD_VAL_DIR = '/work/wangyu/imagenet/tfrecord_val'
-MAX_EXAMPLE_PER_FILE = 500
+import numpy as np
+from PIL import Image
+import multiprocessing
+import time
 
 
-def generate_tfrecords(files_list, record_writer):
-    print('ss')
+def get_val_list(img_dir):
 
+    print('Reading file lists ...')
+    img_lists = sorted(glob.glob(os.path.join(img_dir, 'ILSVRC2012_img_val', '*.JPEG')))
+    label_file = os.path.join(img_dir, 'ILSVRC2012_validation_ground_truth.txt')
+
+    with open(label_file) as t:
+        label_list = t.read().splitlines()
+
+    if len(label_list) != len(img_lists):
+        print('Number of validation images {} and labels {} do not match!'.format(len(img_lists), len(label_list)))
+    print('Got {} validation images/labels'.format(len(img_lists)))
+
+    return [img_lists, label_list]
 
 
 def main(args):
 
-    # parse args
+    # check args
+    img_dir = args.img_dir
+    out_val_dir = args.out_val_dir
+    out_train_dir = args.out_train_dir
+    num_proc = args.num_proc
     gen_train = args.gen_train
     gen_val = args.gen_val
-    img_dir = args.img_dir
-    train_record_dir = args.train_record_dir
-    val_record_dir = args.val_record_dir
-    num_proc_max = args.num_max_proc
+    examples_per_shard = args.examples_per_shard
 
-    if not (gen_train or gen_val):
-        print('Not generating train/val.')
+    if gen_val == 'False' and gen_train == 'False':
+        print('gen-train and gen-val are both False.')
         sys.exit(0)
-    if num_proc_max < 2:
-        print('Need at least 2 processes.')
+    if gen_train == 'True':
+        print('Generate train tfrecords.')
+        if not os.path.exists(out_train_dir):
+            os.makedirs(out_train_dir)
+    else:
+        out_train_dir = None
+    if gen_val == 'True':
+        print('Generate val tfrecords.')
+        if not os.path.exists(out_val_dir):
+            os.makedirs(out_val_dir)
+    else:
+        out_val_dir = None
+    if num_proc < 1:
+        print('num-proc must be at least 1.')
         sys.exit(0)
     if not os.path.exists(img_dir):
-        print('ImageNet dir does not exist: {}'.format(img_dir))
+        print('{} does not exist.')
         sys.exit(0)
-    if not os.path.exists(train_record_dir):
-        os.makedirs(train_record_dir)
-    if not os.path.exists(val_record_dir):
-        os.makedirs(val_record_dir)
+    val_list = get_val_list(img_dir)
+    num_val_imgs = len(val_list[0])
+    num_val_shards = int(num_val_imgs / examples_per_shard)
+    if num_val_imgs % examples_per_shard != 0:
+        print('Number of val images {} not dividiable by examples_per_shard {}'.format(num_val_imgs, examples_per_shard))
+        sys.exit(0)
+    total_shards = num_val_shards
+    shards_per_proc = int(total_shards / num_proc)
+    remain_shards = total_shards % num_proc
 
-    # get number of files
-    num_train_examples = 0
-    num_val_examples = 0
-
-
-    # determine number of processes
-    num_train_records = num_train_examples / MAX_EXAMPLE_PER_FILE
-    num_val_records = num_val_examples / MAX_EXAMPLE_PER_FILE
-    if num_train_examples % MAX_EXAMPLE_PER_FILE != 0:
-        num_train_records += 1
-    if num_val_examples % MAX_EXAMPLE_PER_FILE != 0:
-        num_val_records += 1
-    total_num_records = num_train_records + num_val_records
-    # records_per_proc = total_num_records / num_proc_max
+    # print info
+    print('Number of processes: {}'.format(num_proc))
+    print('Number of examples per shard: {}'.format(examples_per_shard))
+    print('Number of total_shards: {}'.format(total_shards))
+    print('Number shards per processes: {}'.format(shards_per_proc))
+    print('Additional number of shards for the last process: {}'.format(remain_shards))
+    time.sleep(10)
 
 
-    compression_option = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
-    if gen_train:
-        print('Starting generating train records.')
-        # generate multiple train_x.tfrecords
-    if gen_val:
-        print('Starting generating val records.')
-        # generate multiple train_x.tfrecords
+
+
+
+
 
 if __name__ == '__main__':
-    parser = ArgumentParser()
-    parser.add_argument('--imgnet-dir', dest='img_dir', default=IMGNET_DIR)
-    parser.add_argument('--train-record-dir', dest='train_record_dir', default=TFRECORD_TRAIN_DIR)
-    parser.add_argument('--val-record-dir', dest='val_record_dir', default=TFRECORD_VAL_DIR)
-    parser.add_argument('--num-proc', dest='num_max_proc', type=int, default=2)
-    parser.add_argument('gen-train', dest='gen_train', type=bool, required=True)
-    parser.add_argument('gen-val', dest='gen_val', type=bool, required=True)
-    args = parser.parse_args()
+    arg_parser = ArgumentParser()
+    arg_parser.add_argument('--imgnet_dir', dest='img_dir', default='/work/wangyu/imagenet')
+    arg_parser.add_argument('--out-val-dir', dest='out_val_dir', default='/work/wangyu/imagenet/tfrecord_val')
+    arg_parser.add_argument('--out-train-dir', dest='out_train_dir', default='/work/wangyu/imagenet/tfrecord_train')
+    arg_parser.add_argument('--num-proc', dest='num_proc', type=int, default=2)
+    arg_parser.add_argument('--num-examples-per-shard', dest='examples_per_shard', default=400)
+    arg_parser.add_argument('--gen-train', dest='gen_train', required=True)
+    arg_parser.add_argument('--gen-val', dest='gen_val', required=True)
 
+    args = arg_parser.parse_args()
     main(args)
