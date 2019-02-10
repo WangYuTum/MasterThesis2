@@ -35,7 +35,8 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
 ## TODO lists
 * Load pre-trained model on ImageNet
     * Verify validation on single GPU implementation
-    * Verify validation on Multi-GPU implementation
+        * Possible issue: get jpeg raw buffer when creating tfrecord
+        * Possible issue: decode image from jpeg buffer when reading tfrecord
 
 
 

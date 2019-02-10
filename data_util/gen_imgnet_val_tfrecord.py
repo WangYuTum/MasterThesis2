@@ -57,9 +57,9 @@ def is_cmyk(filename):
 
     return os.path.basename(filename) in blacklist
 
-def decode_img(filename):
+def decode_img(image_buffer):
 
-    img_data = Image.open(filename)
+    img_data = Image.open(image_buffer)
     width, height = 0, 0
     if img_data.mode != 'RGB':
         img_data = img_data.convert('RGB')
@@ -68,10 +68,10 @@ def decode_img(filename):
 
     return img_data, width, height
 
-def png_to_jpeg(filename):
+def png_to_jpeg(image_buffer):
 
     # convert to png file
-    filename = filename.replace('JPEG', 'png')
+    filename = image_buffer.replace('JPEG', 'png')
     img_data = Image.open(filename)
     width, height = 0, 0
     if img_data.mode != 'RGB':
@@ -106,7 +106,7 @@ def convert_to_example(img_path, label, img_data, width, height):
         'image/class/label': int64_feature(label),
         'image/format': bytes_feature(image_format),
         'image/filename': bytes_feature(os.path.basename(img_path).encode()),
-        'image/encoded': bytes_feature(img_data.flatten().tostring())})) # flatten in row-major
+        'image/encoded': bytes_feature(img_data)})) # raw image bytes buffer
 
     return example
 
@@ -124,14 +124,17 @@ def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id):
     for ex_id in range(num_examples):
         label = int(label_list[ex_id])
         img_path = img_list[ex_id]
-        if is_png(img_path):
-            img_data, width, height = png_to_jpeg(img_path)
-        else:
-            img_data, width, height = decode_img(img_path) # decode to RGB, no matter it's RGB, cmyk or grayscale
-        if img_path.shape[2] != 3:
-            print('Image channels != 3! for {}'.format(img_path))
-            sys.exit(0)
-        example = convert_to_example(img_path, label, img_data, width, height)
+        image_obj = Image.open(img_path)
+        width, height = image_obj.size
+        image_buffer = image_obj.tobytes()
+        #if is_png(img_path):
+        #    img_data, width, height = png_to_jpeg(image_buffer)
+        #else:
+        #    img_data, width, height = decode_img(image_buffer) # decode to RGB, no matter it's RGB, cmyk or grayscale
+        #if img_data.shape[2] != 3:
+        #    print('Image channels != 3! for {}'.format(img_path))
+        #    sys.exit(0)
+        example = convert_to_example(img_path, label, image_buffer, width, height)
         writer.write(example.SerializeToString())
 
     writer.flush()
