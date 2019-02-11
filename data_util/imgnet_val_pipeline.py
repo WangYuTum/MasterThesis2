@@ -231,3 +231,17 @@ def parse_example_proto(raw_record):
     label = tf.cast(features['image/class/label'], dtype=tf.int32)
 
     return features['image/encoded'], label
+
+########################################################################
+# Build TF Dataset of ImageNet validation pipeline
+########################################################################
+def build_dataset(is_training, val_record_dir):
+
+    if is_training:
+        raise ValueError('Only support validation mode!')
+    file_list = get_filenames(is_training, val_record_dir)
+    print('Got {} tfrecords.'.format(len(file_list)))
+
+    # create dataset
+    dataset = tf.data.TFRecordDataset(filenames=file_list, compression_type='GZIP', num_parallel_reads=10)
+    dataset = dataset.prefetch(buffer_size=1024)
