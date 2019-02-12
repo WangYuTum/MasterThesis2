@@ -182,7 +182,7 @@ def get_filenames(is_training, data_dir):
   else:
     return [
         os.path.join(data_dir, 'val_'+str(shard_id)+'.tfrecord')
-        for shard_id in range(128)]
+        for shard_id in range(125)]
 
 def parse_record(raw_record, is_training, dtype):
   """Parses a record containing a training example of an image.
@@ -235,7 +235,12 @@ def parse_example_proto(raw_record):
 ########################################################################
 # Build TF Dataset of ImageNet validation pipeline
 ########################################################################
-def build_dataset(is_training, val_record_dir):
+def build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val', batch=100, is_training=False, data_format='channels_first'):
+    """
+    :param is_training: False during validation/inference
+    :param val_record_dir: default '/work/wangyu/imagenet/tfrecord_val'
+    :return:
+    """
 
     if is_training:
         raise ValueError('Only support validation mode!')
@@ -243,5 +248,39 @@ def build_dataset(is_training, val_record_dir):
     print('Got {} tfrecords.'.format(len(file_list)))
 
     # create dataset
-    dataset = tf.data.TFRecordDataset(filenames=file_list, compression_type='GZIP', num_parallel_reads=10)
-    dataset = dataset.prefetch(buffer_size=1024)
+    dataset = tf.data.TFRecordDataset(filenames=file_list,
+                                      compression_type='GZIP',
+                                      num_parallel_reads=4) # parallel read 4 *.tfrecord files (~200MB)
+    dataset = dataset.prefetch(buffer_size=800) # prefetch and buffer 800 examples/images internally
+    dataset = dataset.map(parse_func, num_parallel_calls=8) # parallel parse 8 examples at once
+    if data_format == 'channels_first':
+        dataset = dataset.map(reformat_channel_first, num_parallel_calls=8) # parallel parse 8 examples at once
+    else:
+        raise ValueError('Data format is not channels_first when building dataset pipeline!')
+    dataset = dataset.batch(batch) # inference 100 images for one feed-forward
+    dataset = dataset.prefetch(buffer_size=8)  # prefetch and buffer 8 batches internally
+
+    print('Dataset pipeline built.')
+
+    return dataset
+
+def parse_func(example_proto):
+    """
+        Callable func to be fed to dataset.map()
+    """
+
+    image, label = parse_record(raw_record=example_proto,
+                                is_training=False,
+                                dtype=tf.float32) # image: tf.float32, [h, w, 3]; label: tf.int32, scalar
+    dict = {'image': image, 'label': label}
+    return dict
+
+def reformat_channel_first(example_dict):
+
+    image = tf.transpose(example_dict['image'], [2, 0, 1])
+    dict = {'image':image, 'label':example_dict['label']}
+
+    return dict
+
+
+

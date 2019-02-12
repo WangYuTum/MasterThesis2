@@ -27,7 +27,7 @@ class ResNet():
         self.stage_number_ = params.get('stage_numbers', [2, 3, 4, 5])
         self.num_blocks_ = params.get('num_blocks', [3, 4, 6, 3])
         self.res_strides_ = params.get('res_strides', [1, 2, 2, 2])
-        self.bn_momentum_ = params.get('bn_momentum', 0.9)
+        self.bn_momentum_ = params.get('bn_momentum', 0.997)
         self.bn_epsilon_ = params.get('bn_epsilon', 1e-5)
 
         # below are BN params of pre-trained ImageNet of ResNet-50-v2
@@ -49,21 +49,13 @@ class ResNet():
         :return: output of the stage
         '''
 
-        final_filters = num_filters * 4
-
         with tf.variable_scope('C' + str(stage_num)):
             ############################ 1st block with shortcut conv ##################################
-            with tf.variable_scope('shortcut'):
-            # shortcut conv with stride (for down-sampling in C3, C4, C5)
-                in_dim = self.num_filters_[stage_num-2] if stage_num == 2 else self.num_filters_[stage_num-3]*4
-                out_dim = final_filters
-                shortcut = nn.conv_layer(inputs=inputs, filters=[in_dim, out_dim], kernel_size=1, stride=stride,
-                                         l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
             with tf.variable_scope('block1'):
             # 1st res block with stride (for down-sampling in C3, C4, C5)
                 in_dim = self.num_filters_[stage_num-2] if stage_num == 2 else self.num_filters_[stage_num-3]*4
                 out_dim = num_filters
-                inputs = nn.res_block(inputs=inputs, filters=[in_dim, out_dim], shortcut=shortcut,
+                inputs = nn.res_block(inputs=inputs, filters=[in_dim, out_dim], shortcut=True,
                                       stride=stride, l2_decay=self.l2_weight_, momentum=self.bn_momentum_,
                                       epsilon=self.bn_epsilon_, training=training, data_format=self.data_format_,
                                       first_block=True)
@@ -71,7 +63,7 @@ class ResNet():
             ############################ the rest blocks with indentity skip ##################################
             for block_id in range(2, num_blocks+1):
                 with tf.variable_scope('block' + str(block_id)):
-                    inputs = nn.res_block(inputs=inputs, filters=[num_filters, num_filters], shortcut=inputs,
+                    inputs = nn.res_block(inputs=inputs, filters=[num_filters, num_filters], shortcut=False,
                                           stride=1, l2_decay=self.l2_weight_, momentum=self.bn_momentum_,
                                           epsilon=self.bn_epsilon_, training=training, data_format=self.data_format_,
                                           first_block=False)
@@ -112,9 +104,20 @@ class ResNet():
 
                 axes = [2, 3]
                 inputs = tf.reduce_mean(inputs, axes, keepdims=True)
-                inputs = tf.reshape(inputs, [-1, 2048])
+                inputs = tf.squeeze(inputs, axes) # [batch, 2048]
                 inputs = nn.dense_layer(inputs=inputs, weight_size=[2048, 1001], l2_decay=self.l2_weight_, training=training)
 
         return inputs
+
+    def inference(self, dense_out):
+        '''
+        :param dense_out: a tensor with shape [batch, 1001]
+        :return: a tensor with shape [batch], each vector element is predicted label id
+        '''
+
+        prob_out = tf.nn.softmax(logits=dense_out, axis=-1)
+        pred_label = tf.reshape(tf.math.argmax(input=prob_out, axis=-1), [-1]) # to a vector
+
+        return pred_label
 
 

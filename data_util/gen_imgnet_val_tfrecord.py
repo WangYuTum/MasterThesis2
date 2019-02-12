@@ -1,5 +1,5 @@
 '''
-The files generates ImageNet train/val tfrecords.
+The files generates ImageNet val tfrecords.
 '''
 
 from __future__ import absolute_import
@@ -15,12 +15,46 @@ from PIL import Image
 import multiprocessing
 import time
 
+class ImageCoder():
+    def __init__(self):
+        # Create a single Session to run all image coding calls on CPU
+        self._sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}))
+
+        # Initializes function that converts PNG to JPEG data.
+        self._png_data = tf.placeholder(dtype=tf.string)
+        image = tf.image.decode_png(self._png_data, channels=3)
+        self._png_to_jpeg = tf.image.encode_jpeg(image, format='rgb', quality=100)
+
+        # Initializes function that converts CMYK JPEG data to RGB JPEG data.
+        self._cmyk_data = tf.placeholder(dtype=tf.string)
+        image = tf.image.decode_jpeg(self._cmyk_data, channels=0)
+        self._cmyk_to_rgb = tf.image.encode_jpeg(image, format='rgb', quality=100)
+
+        # Initializes function that decodes RGB JPEG data.
+        self._decode_jpeg_data = tf.placeholder(dtype=tf.string)
+        self._decode_jpeg = tf.image.decode_jpeg(self._decode_jpeg_data, channels=3)
+
+    def png_to_jpeg(self, image_data):
+        return self._sess.run(self._png_to_jpeg,
+                              feed_dict={self._png_data: image_data})
+
+    def cmyk_to_rgb(self, image_data):
+        return self._sess.run(self._cmyk_to_rgb,
+                              feed_dict={self._cmyk_data: image_data})
+
+    def decode_jpeg(self, image_data):
+        image = self._sess.run(self._decode_jpeg,
+                               feed_dict={self._decode_jpeg_data: image_data})
+        assert len(image.shape) == 3
+        assert image.shape[2] == 3
+        return image
+
 
 def get_val_list(img_dir):
 
     print('Reading file lists ...')
     img_lists = sorted(glob.glob(os.path.join(img_dir, 'ILSVRC2012_img_val', '*.JPEG')))
-    label_file = os.path.join(img_dir, 'ILSVRC2012_validation_ground_truth.txt')
+    label_file = os.path.join(img_dir, 'ILSVRC2012_validation_ground_truth_reorder.txt')
 
     with open(label_file) as t:
         label_list = t.read().splitlines()
@@ -110,7 +144,7 @@ def convert_to_example(img_path, label, img_data, width, height):
 
     return example
 
-def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id):
+def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id, coder):
 
     img_list = val_list[0]
     label_list = val_list[1]
@@ -124,16 +158,21 @@ def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id):
     for ex_id in range(num_examples):
         label = int(label_list[ex_id])
         img_path = img_list[ex_id]
-        image_obj = Image.open(img_path)
-        width, height = image_obj.size
-        image_buffer = image_obj.tobytes()
-        #if is_png(img_path):
-        #    img_data, width, height = png_to_jpeg(image_buffer)
-        #else:
-        #    img_data, width, height = decode_img(image_buffer) # decode to RGB, no matter it's RGB, cmyk or grayscale
-        #if img_data.shape[2] != 3:
-        #    print('Image channels != 3! for {}'.format(img_path))
-        #    sys.exit(0)
+        with tf.gfile.GFile(img_path, 'rb') as f:
+            image_buffer = f.read() # it's okay if the raw image is grayscale since we will decode it as rgb during train/inf
+        if is_png(img_path):
+            image_buffer = coder.png_to_jpeg(image_buffer)
+        elif is_cmyk(img_path):
+            image_buffer = coder.cmyk_to_rgb(image_buffer) # encode to rgb space
+
+        # decode image_buffer and check size
+        image = coder.decode_jpeg(image_buffer)
+        assert len(image.shape) == 3
+        height = image.shape[0]
+        width = image.shape[1]
+        assert image.shape[2] == 3
+
+        # write to file
         example = convert_to_example(img_path, label, image_buffer, width, height)
         writer.write(example.SerializeToString())
 
@@ -144,6 +183,8 @@ def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id):
 
 def generate_val_shards_process(val_list,  out_dir, shards_per_proc, examples_per_shard, proc_id, last_proc, remain_shards):
 
+    # each process has its own image coder/decoder
+    coder = ImageCoder()
     num_shards = shards_per_proc
     if last_proc:
         num_shards += remain_shards
@@ -155,7 +196,7 @@ def generate_val_shards_process(val_list,  out_dir, shards_per_proc, examples_pe
             end = len(val_list[0])
         else:
             end = start + examples_per_shard
-        generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_per_shard, shard_id)
+        generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_per_shard, shard_id, coder)
 
 
 def main(args):

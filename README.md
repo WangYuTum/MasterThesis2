@@ -8,8 +8,8 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
  amount of data. Flownet \[[5](https://arxiv.org/abs/1504.06852)\] is a good example of tracking scene pixels from one frame to another regardless of object categories.
 
 ## Backbone
-* ResNet-50-v2 pre-trained on ImageNet (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
-* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.variance_scaling_initializer().
+* ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
+* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
 * (TODO)Train the above FPN on Object Detection Dataset to verify correctness (Multi-GPU).
 * (TODO)Extend the above FPN by adding additional cross-correlation layers.
 * (TODO)Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
@@ -33,10 +33,18 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
 
 
 ## TODO lists
-* Load pre-trained model on ImageNet
-    * Verify validation on single GPU implementation
-        * Possible issue: get jpeg raw buffer when creating tfrecord
-        * Possible issue: decode image from jpeg buffer when reading tfrecord
+* Load pre-trained model on ImageNet2012
+    * **(Done)** Verify validation on single GPU implementation
+        * Official accuracy: 76.47% (fp32)
+        * Test accuracy: 76.47% (fp32)
+    * Verify validation on multiple GPUs implementation
+* Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
+    * Verify validation on single GPU
+* Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
+    * Verify validation on multiple GPUs
+    
+## Issues
+* Corrupted records when creating tfrecord
 
 
 
