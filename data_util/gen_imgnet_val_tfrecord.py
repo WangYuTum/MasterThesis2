@@ -181,7 +181,7 @@ def generate_val_shard(val_list, out_dir, examples_per_shard, shard_id, coder):
     print('Generated {}'.format(full_out_path))
 
 
-def generate_val_shards_process(val_list,  out_dir, shards_per_proc, examples_per_shard, proc_id, last_proc, remain_shards):
+def generate_val_shards_process(val_list,  out_dir, shards_per_proc, examples_per_shard, proc_id, last_proc, remain_shards, examples_last_shard):
 
     # each process has its own image coder/decoder
     coder = ImageCoder()
@@ -192,11 +192,17 @@ def generate_val_shards_process(val_list,  out_dir, shards_per_proc, examples_pe
     for local_shard_id in range(num_shards):
         shard_id = proc_id * shards_per_proc + local_shard_id
         start = local_shard_id * examples_per_shard
-        if local_shard_id == num_shards - 1:
+        if local_shard_id == num_shards - 1: # the last shard within the process
             end = len(val_list[0])
-        else:
+            if last_proc: # the last process, and the last shard
+                generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_last_shard,
+                                   shard_id, coder)
+            else: # not the last process, but the last shard
+                generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_per_shard,
+                                   shard_id, coder)
+        else: # not the last shard
             end = start + examples_per_shard
-        generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_per_shard, shard_id, coder)
+            generate_val_shard([val_list[0][start:end], val_list[1][start:end]], out_dir, examples_per_shard, shard_id, coder)
 
 
 def main(args):
@@ -205,7 +211,7 @@ def main(args):
     img_dir = args.img_dir
     out_val_dir = args.out_val_dir
     num_proc = args.num_proc
-    examples_per_shard = args.examples_per_shard
+    num_shards = args.num_shards
 
     print('Generate ImageNet Validation tfrecords.')
     if not os.path.exists(out_val_dir):
@@ -218,20 +224,19 @@ def main(args):
         sys.exit(0)
     val_list = get_val_list(img_dir)
     num_val_imgs = len(val_list[0])
-    num_val_shards = int(num_val_imgs / examples_per_shard)
-    if num_val_imgs % examples_per_shard != 0:
-        print('Number of val images {} not dividiable by examples_per_shard {}'.format(num_val_imgs, examples_per_shard))
-        sys.exit(0)
-    total_shards = num_val_shards
+    examples_per_shard = int(num_val_imgs / num_shards)
+    examples_last_shard = (num_val_imgs - examples_per_shard * num_shards) + examples_per_shard
+    total_shards = num_shards
     shards_per_proc = int(total_shards / num_proc)
     remain_shards = total_shards % num_proc
 
     # print info
     print('Number of processes: {}'.format(num_proc))
-    print('Number of examples per shard: {}'.format(examples_per_shard))
     print('Number of total_shards: {}'.format(total_shards))
+    print('Number of examples per shard: {}'.format(examples_per_shard))
+    print('Number of examples for last shard: {}'.format(examples_last_shard))
     print('Number shards per processes: {}'.format(shards_per_proc))
-    print('Additional number of shards for the last process: {}'.format(remain_shards))
+    print('Number of shards for last process: {}'.format(remain_shards + shards_per_proc))
     time.sleep(10)
 
     process_pool = []
@@ -246,7 +251,7 @@ def main(args):
         process_pool.append(multiprocessing.Process(target=generate_val_shards_process,
                                                     args=[[val_list[0][start:end], val_list[1][start:end]],
                                                           out_val_dir, shards_per_proc, examples_per_shard, proc_id,
-                                                          last_proc, remain_shards]))
+                                                          last_proc, remain_shards, examples_last_shard]))
     for i in range(num_proc):
         process_pool[i].start()
     for i in range(num_proc):
@@ -259,7 +264,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--imgnet_dir', dest='img_dir', default='/work/wangyu/imagenet')
     arg_parser.add_argument('--out-val-dir', dest='out_val_dir', default='/work/wangyu/imagenet/tfrecord_val')
     arg_parser.add_argument('--num-proc', dest='num_proc', type=int, default=2)
-    arg_parser.add_argument('--num-examples-per-shard', dest='examples_per_shard', default=400)
+    arg_parser.add_argument('--num-shards', dest='num_shards', default=128)
 
     args = arg_parser.parse_args()
     main(args)

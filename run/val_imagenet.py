@@ -23,8 +23,6 @@ config_gpu.gpu_options.allow_growth = True
 
 
 # build data pipeline (the labels are from ImageNet2012 official dataset)
-if _NUM_VAL % _BATCH_SIZE != 0:
-    raise ValueError('Number of validation images {} not dividable by batch size {}'.format(_NUM_VAL, _BATCH_SIZE))
 dataset = imgnet_val_pipeline.build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val',
                                             batch=_BATCH_SIZE, is_training=_TRAINING,
                                             data_format='channels_first')
@@ -54,7 +52,7 @@ with tf.Session(config=config_gpu) as sess:
 
     # do inference
     print('Start inference ..., batch size = {}'.format(_BATCH_SIZE))
-    num_runs = int(_NUM_VAL / _BATCH_SIZE) # default 500 iterations
+    num_runs = int(_NUM_VAL / _BATCH_SIZE) + _NUM_VAL % _BATCH_SIZE # default 500 iterations
     num_correct = 0
     for run_i in range(num_runs):
         print('Iteration {}'.format(run_i))

@@ -182,7 +182,7 @@ def get_filenames(is_training, data_dir):
   else:
     return [
         os.path.join(data_dir, 'val_'+str(shard_id)+'.tfrecord')
-        for shard_id in range(125)]
+        for shard_id in range(128)]
 
 def parse_record(raw_record, is_training, dtype):
   """Parses a record containing a training example of an image.
@@ -247,18 +247,21 @@ def build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val', batch=100
     file_list = get_filenames(is_training, val_record_dir)
     print('Got {} tfrecords.'.format(len(file_list)))
 
-    # create dataset
-    dataset = tf.data.TFRecordDataset(filenames=file_list,
-                                      compression_type='GZIP',
-                                      num_parallel_reads=4) # parallel read 4 *.tfrecord files (~200MB)
-    dataset = dataset.prefetch(buffer_size=800) # prefetch and buffer 800 examples/images internally
-    dataset = dataset.map(parse_func, num_parallel_calls=8) # parallel parse 8 examples at once
+    # create dataset, reading multiple shards
+    dataset = tf.data.Dataset.list_files(file_list) # dataset contains mulitple files
+    # process 8 files concurrently and interleave blocks of 10 records from each file
+    dataset = dataset.interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
+                                                                          compression_type='GZIP',
+                                                                          num_parallel_reads=4),
+                                 cycle_length=8, block_length=10, num_parallel_calls=4)
+    dataset = dataset.prefetch(buffer_size=1600) # prefetch and buffer 1600 examples/images internally
+    dataset = dataset.map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
     if data_format == 'channels_first':
-        dataset = dataset.map(reformat_channel_first, num_parallel_calls=8) # parallel parse 8 examples at once
+        dataset = dataset.map(reformat_channel_first, num_parallel_calls=4) # parallel parse 8 examples at once
     else:
         raise ValueError('Data format is not channels_first when building dataset pipeline!')
     dataset = dataset.batch(batch) # inference 100 images for one feed-forward
-    dataset = dataset.prefetch(buffer_size=8)  # prefetch and buffer 8 batches internally
+    dataset = dataset.prefetch(buffer_size=16)  # prefetch and buffer 16 batches internally
 
     print('Dataset pipeline built.')
 
