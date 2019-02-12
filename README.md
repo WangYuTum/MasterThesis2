@@ -28,9 +28,6 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
 * Moving statistics are only created and updated locally on the 1st tower (tower_0)
 * Specify tf.name_scope when building models on different towers (since different towers need to execute different graphs/operations)
 
-## Batch Normalization
-* L2 regularizer on gamma/beta ?
-
 
 ## TODO lists
 * Load pre-trained model on ImageNet2012
@@ -42,9 +39,6 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
     * Verify validation on single GPU
 * Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
     * Verify validation on multiple GPUs
-    
-## Issues
-* Corrupted records when creating tfrecord
 
 
 
