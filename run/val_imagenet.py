@@ -13,6 +13,7 @@ sys.path.append('..')
 from core import resnet
 from data_util import imgnet_val_pipeline
 import numpy as np
+import time
 
 _NUM_VAL = 50000
 _BATCH_SIZE = 100
@@ -54,6 +55,7 @@ with tf.Session(config=config_gpu) as sess:
     print('Start inference ..., batch size = {}'.format(_BATCH_SIZE))
     num_runs = int(_NUM_VAL / _BATCH_SIZE) + _NUM_VAL % _BATCH_SIZE # default 500 iterations
     num_correct = 0
+    start_t = time.time()
     for run_i in range(num_runs):
         print('Iteration {}'.format(run_i))
         pred_label_, next_element_ = sess.run([pred_label, next_element])
@@ -63,7 +65,8 @@ with tf.Session(config=config_gpu) as sess:
         gt_label_ = np.array(next_element_['label'], dtype=np.int32).reshape(-1)
         # get num correct predictions
         num_correct += np.sum(pred_label_ == gt_label_)
-    print('Inference done. Accuracy: {}'.format(num_correct / _NUM_VAL))
+    end_t = time.time()
+    print('Inference done in {} seconds. Accuracy: {}'.format(end_t-start_t, num_correct / _NUM_VAL))
 
 
 
