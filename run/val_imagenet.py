@@ -23,7 +23,7 @@ config_gpu.gpu_options.allow_growth = True
 
 
 # build data pipeline (the labels are from ImageNet2012 official dataset)
-dataset = imgnet_val_pipeline.build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val',
+dataset = imgnet_val_pipeline.build_dataset(val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val',
                                             batch=_BATCH_SIZE, is_training=_TRAINING,
                                             data_format='channels_first')
 iterator = dataset.make_one_shot_iterator()
@@ -31,7 +31,7 @@ next_element = iterator.get_next()
 
 
 # build resnet model
-model_params = {'load_weight': '../data/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
+model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
                 'batch': _BATCH_SIZE}
 model = resnet.ResNet(model_params)
 dense_out = model.build_model(inputs=next_element['image'], training=_TRAINING)

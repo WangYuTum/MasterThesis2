@@ -235,7 +235,8 @@ def parse_example_proto(raw_record):
 ########################################################################
 # Build TF Dataset of ImageNet validation pipeline
 ########################################################################
-def build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val', batch=100, is_training=False, data_format='channels_first'):
+def build_dataset(val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val',
+                  batch=100, is_training=False, data_format='channels_first'):
     """
     :param is_training: False during validation/inference
     :param val_record_dir: default '/work/wangyu/imagenet/tfrecord_val'
