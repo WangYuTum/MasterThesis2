@@ -13,13 +13,18 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 
 ## Dateset
 * ImageNet2012 Validation set. Note that the ground truth label used is different from ImageNet official labels.
+    * 'ILSVRC2012_validation_ground_truth.txt' is the ImageNet2012 Validation set official gt label
+    * 'ILSVRC2012_validation_ground_truth_reorder.txt' is the validation set gt label actually used
+    * 'ILSVRC2012_validation_synset_labels.txt' is the ImageNet2012 Validation set gt class name (consistent)
 
 ## Model
 * ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
 * All model variables (convolution kernels, biases, dense weights, batch_norm gammas and betas) are created on CPU using tf.get_variable explicitly.
+All model variable names are renamed in our own implementation.
 * Performance (on ImageNet2012 Validation set):
     * Official: 76.47% (fp32)
     * Tested: 76.47% (fp32)
+* Model structure can be found in important_data/ResNet50-v2/Resnet-50-v2_layers
 
 
 

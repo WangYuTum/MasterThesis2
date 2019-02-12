@@ -1,5 +1,6 @@
 Network layers:
 Create backbone/kernel, [7, 7, 3, 64]
+Create max_pool2d, [3,3], stride=2
 Create backbone/C2/block1/conv1/moving_mean, [64]
 Create backbone/C2/block1/conv1/moving_variance, [64]
 Create backbone/C2/block1/conv1/beta, [64]
