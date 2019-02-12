@@ -7,12 +7,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import sys,os
+import sys
 import tensorflow as tf
 sys.path.append('..')
 from core import resnet
 from data_util import imgnet_val_pipeline
 import numpy as np
+import time
 
 _NUM_VAL = 50000
 _TRAINING = False
@@ -57,6 +58,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
             with tf.device('/gpu:%d'%gpu_id):
                 with tf.name_scope('%s_%d'%('tower', gpu_id)) as scope: # operation scope for each gpu
                     # build model
+                    print('Building model on GPU {}'.format(gpu_id))
                     model = resnet.ResNet(model_params)
                     dense_out = model.build_model(inputs=next_element_gpus[gpu_id]['image'], training=_TRAINING)
                     pred_label = model.inference(dense_out)  # return a vector [batch]
@@ -72,6 +74,11 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     saver_imgnet = tf.train.Saver()
     init = tf.global_variables_initializer()
 
+    # print info
+    print('Number of GPUs: {}'.format(_NUM_GPU))
+    print('Batch size per GPU: {}'.format(batch_size))
+    print('Number of iterations: {}'.format(num_runs))
+
     # run inference graph
     sess_config = tf.ConfigProto()
     sess_config.allow_soft_placement=True
@@ -84,15 +91,19 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         print('Successfully loaded weights from {}'.format(model_params['load_weight']))
 
         num_correct = 0
+        print('Start inference ...')
         # run inference until all GPUs finished examples
+        start_t = time.time()
         for run_i in range(num_runs):
+            print('Iter {}'.format(run_i))
             pred_gt_labels_ = sess.run(pred_ops+get_gt_ops)
             # aggregate predictions
             for i in range(_NUM_GPU):
                 pred_label_ = np.array(pred_gt_labels_[i], dtype=np.int32).reshape(-1)
                 gt_label_ = np.array(pred_gt_labels_[i+_NUM_GPU], dtype=np.int32).reshape(-1)
                 num_correct += np.sum(pred_label_ == gt_label_)
-        print('Inference done. Accuracy: {}'.format(num_correct / _NUM_VAL))
+        end_t = time.time()
+        print('Inference done in {} seconds. Accuracy: {}'.format(end_t-start_t, num_correct / _NUM_VAL))
 
 
 
