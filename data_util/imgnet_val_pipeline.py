@@ -182,7 +182,7 @@ def get_filenames(is_training, data_dir):
   else:
     return [
         os.path.join(data_dir, 'val_'+str(shard_id)+'.tfrecord')
-        for shard_id in range(125)]
+        for shard_id in range(128)]
 
 def parse_record(raw_record, is_training, dtype):
   """Parses a record containing a training example of an image.
@@ -235,37 +235,50 @@ def parse_example_proto(raw_record):
 ########################################################################
 # Build TF Dataset of ImageNet validation pipeline
 ########################################################################
-def build_dataset(val_record_dir='/work/wangyu/imagenet/tfrecord_val', batch=100, is_training=False, data_format='channels_first'):
+def build_dataset(num_gpu=2, batch=100, val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val',
+                  is_training=False, data_format='channels_first'):
     """
+    Note that though each gpu process a unique part of the dataset, the data pipeline is built
+    only on CPU. Each GPU worker will have its own dataset iterator
+
+    :param num_gpu: total number of gpus, each gpu will be assigned to a unique part of the dataset
+    :param batch: batch of images processed on each gpu
+    :param val_record_dir: where the tfrecord files are stored
     :param is_training: False during validation/inference
-    :param val_record_dir: default '/work/wangyu/imagenet/tfrecord_val'
-    :return:
+    :param data_format: must be 'channels_first' when using gpu
+    :return: a list of sub-dataset for each different gpu
     """
 
     if is_training:
         raise ValueError('Only support validation mode!')
     file_list = get_filenames(is_training, val_record_dir)
     print('Got {} tfrecords.'.format(len(file_list)))
+    subset = []
 
-    # create dataset, reading multiple shards
+    # create dataset, reading all validation tfrecord files, default number of files = 128
     dataset = tf.data.Dataset.list_files(file_list) # dataset contains mulitple files
-    # process 8 files concurrently and interleave blocks of 10 records from each file
-    dataset = dataset.interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
-                                                                          compression_type='GZIP',
-                                                                          num_parallel_reads=4),
-                                 cycle_length=8, block_length=10, num_parallel_calls=4)
-    dataset = dataset.prefetch(buffer_size=1600) # prefetch and buffer 1600 examples/images internally
-    dataset = dataset.map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
-    if data_format == 'channels_first':
-        dataset = dataset.map(reformat_channel_first, num_parallel_calls=4) # parallel parse 8 examples at once
-    else:
-        raise ValueError('Data format is not channels_first when building dataset pipeline!')
-    dataset = dataset.batch(batch) # inference 100 images for one feed-forward
-    dataset = dataset.prefetch(buffer_size=16)  # prefetch and buffer 16 batches internally
+    # seperate a unique part of the dataset according to number of gpus
+    for gpu_id in range(num_gpu):
+        subset.append(dataset.shard(num_shards=num_gpu, index=gpu_id))
+    # parse records for each gpu
+    for gpu_id in range(num_gpu):
+        # process 4 files concurrently and interleave blocks of 10 records from each file
+        subset[gpu_id] = subset[gpu_id].interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
+                                                                                            compression_type='GZIP',
+                                                                                            num_parallel_reads=4),
+                                                   cycle_length=8, block_length=10, num_parallel_calls=4)
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=1600) # prefetch and buffer 1600 examples/images internally
+        subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
+        if data_format == 'channels_first':
+            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 8 examples at once
+        else:
+            raise ValueError('Data format is not channels_first when building dataset pipeline!')
+        subset[gpu_id] = subset[gpu_id].batch(batch) # inference 100 images for one feed-forward
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=16)  # prefetch and buffer 16 batches internally
 
-    print('Dataset pipeline built.')
+    print('Dataset pipeline built for {} GPUs.'.format(num_gpu))
 
-    return dataset
+    return subset
 
 def parse_func(example_proto):
     """

@@ -6,6 +6,7 @@ notebook/.ipynb_checkpoints/
 
 # data
 data/
+tmp_data/
 
 # .pyc
 *.pyc

@@ -220,9 +220,9 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
     num_filters = inputs.get_shape().as_list()[1]
     new_shape = [1, num_filters, 1, 1]
 
-    ###############################  Single GPU Impl.  ##################################
-    # during inference, we use final moving_mean, moving_var (which MUST be initialised from checkpoint)
     if not training:
+        ###############################  Single/Multi GPU Impl. are the same during inference ##########################
+        # during inference, we use final moving_mean, moving_var (which MUST be initialised from checkpoint)
         moving_mean = get_var_cpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
                                            training=False)
         print('Create {0}, {1}'.format(re.sub(':0', '', moving_mean.name), [num_filters]))

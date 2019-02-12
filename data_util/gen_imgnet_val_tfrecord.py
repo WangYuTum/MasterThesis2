@@ -261,8 +261,8 @@ def main(args):
 
 if __name__ == '__main__':
     arg_parser = ArgumentParser()
-    arg_parser.add_argument('--imgnet_dir', dest='img_dir', default='/work/wangyu/imagenet')
-    arg_parser.add_argument('--out-val-dir', dest='out_val_dir', default='/work/wangyu/imagenet/tfrecord_val')
+    arg_parser.add_argument('--imgnet_dir', dest='img_dir', default='/storage/remote/atbeetz21/wangyu/imagenet')
+    arg_parser.add_argument('--out-val-dir', dest='out_val_dir', default='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val')
     arg_parser.add_argument('--num-proc', dest='num_proc', type=int, default=2)
     arg_parser.add_argument('--num-shards', dest='num_shards', default=128)
 
