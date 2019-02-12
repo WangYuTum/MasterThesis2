@@ -7,38 +7,30 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
  via mask propagation. We believe that tracking object pixels is feasible even if the object motion is non-rigid as long as the model is trained using a large
  amount of data. Flownet \[[5](https://arxiv.org/abs/1504.06852)\] is a good example of tracking scene pixels from one frame to another regardless of object categories.
 
-## Backbone
-* ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
-* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
-* (TODO)Train the above FPN on Object Detection Dataset to verify correctness (Multi-GPU).
-* (TODO)Extend the above FPN by adding additional cross-correlation layers.
-* (TODO)Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
-consecutive frames (Multi-GPU).
-
 
 ## Tensorflow
 * TF version = 1.12.0
 * CUDA 9.0, cuDNN >= 7.2
-* (Optional) NCCL 2.2 for multi-gpu
 
-## Notes on Multi-GPU (TF_version = 1.12.0)
-* NCCL 2.2 is a must
-* All model variables (convolution kernels, biases, dense weights, batch_norm gammas and betas) are created on CPU using tf.get_variable explicitly. All model parameters
-are shared across GPUs (but not graphs/operations which are specified via tf.name_scope)
-* Moving statistics are only created and updated locally on the 1st tower (tower_0)
-* Specify tf.name_scope when building models on different towers (since different towers need to execute different graphs/operations)
+## Devices
+* CPUs >=1 (cores_per_cpu >= 4)
+* GPUs >=1 (2 GPUs have 2x speed up)
 
+## Dateset
+* ImageNet2012 Validation set. Note that the ground truth label used is different from ImageNet official labels.
+    * 'ILSVRC2012_validation_ground_truth.txt' is the ImageNet2012 Validation set official gt label
+    * 'ILSVRC2012_validation_ground_truth_reorder.txt' is the validation set gt label actually used
+    * 'ILSVRC2012_validation_synset_labels.txt' is the ImageNet2012 Validation set gt class name (consistent)
 
-## TODO lists
-* Load pre-trained model on ImageNet2012
-    * **(Done)** Verify validation on single GPU implementation
-        * Official accuracy: 76.47% (fp32)
-        * Test accuracy: 76.47% (fp32)
-    * Verify validation on multiple GPUs implementation
-* Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
-    * Verify validation on single GPU
-* Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
-    * Verify validation on multiple GPUs
+## Model
+* ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
+* All model variables (convolution kernels, biases, dense weights, batch_norm gammas and betas) are created on CPU using tf.get_variable explicitly. 
+All model variable names are renamed in our own implementation.
+* During inference, each GPU only computes a unique part of the validation set
+* Performance (on ImageNet2012 Validation set):
+    * Official: 76.47% (fp32)
+    * Tested: 76.47% (fp32)
+* Model structure can be found in in the branch resnet50-v2_single-gpu_imgnet2012-val: important_data/ResNet50-v2/Resnet-50-v2_layers
 
 
 
