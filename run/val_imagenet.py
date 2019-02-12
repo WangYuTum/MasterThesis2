@@ -1,6 +1,6 @@
 '''
-    The script runs inference on imagenet validation set on a single GPU.
-    Note that the script only support inference on single GPU with image format channels_first.
+    The script runs inference on imagenet validation set on multiple GPUs.
+    Note that the script only support inference with image format channels_first.
 '''
 
 from __future__ import absolute_import
@@ -17,7 +17,8 @@ import numpy as np
 _NUM_VAL = 50000
 _BATCH_SIZE = 100
 _TRAINING = False
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+_NUM_GPU = 2
+_NUM_SHARDS = 128
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
