@@ -16,8 +16,8 @@ class ResNet():
 
         self.data_format_ = params.get('data_format', 'channels_first')
         self.batch_ = params.get('batch', 1)
-        self.l2_weight_ = params.get('l2_weight', 0.0002)
-        self.init_lr_ = params.get('init_lr', 1e-5)
+        self.l2_weight_ = params.get('l2_weight', 0.0001)
+        self.init_lr_ = params.get('init_lr', 0.01)
         self.init_filters_ = params.get('init_filters', 64)
         self.init_kernel_size_ = params.get('init_kernel_size', 7)
         self.init_conv_stride_ = params.get('init_conv_stride', 2)
@@ -27,7 +27,7 @@ class ResNet():
         self.stage_number_ = params.get('stage_numbers', [2, 3, 4, 5])
         self.num_blocks_ = params.get('num_blocks', [3, 4, 6, 3])
         self.res_strides_ = params.get('res_strides', [1, 2, 2, 2])
-        self.bn_momentum_ = params.get('bn_momentum', 0.997)
+        self.bn_momentum_ = params.get('bn_momentum', 0.9)
         self.bn_epsilon_ = params.get('bn_epsilon', 1e-5)
 
         # below are BN params of pre-trained ImageNet of ResNet-50-v2
@@ -119,5 +119,27 @@ class ResNet():
         pred_label = tf.reshape(tf.math.argmax(input=prob_out, axis=-1), [-1]) # to a vector
 
         return pred_label
+
+    def loss(self, dense_out, gt_label):
+        '''
+        :param dense_out: output of dense layer with shape [batch, 1001]
+        :param gt_label: gt label of current batch with shape [batch]
+        :return: scalar lose (train loss + l2_loss)
+        '''
+
+        # l2_loss, already multiplied by decay when created graph
+        l2_loss = tf.add_n(tf.get_collection('l2_losses'), name='l2_loss')
+        tf.summary.scalar(name='l2_loss', tensor=l2_loss)
+
+        # cls loss
+        gt_label = tf.cast(tf.reshape(gt_label, [-1]), tf.int64)
+        cross_entropy_mean = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_label, logits=dense_out))
+        tf.summary.scalar(name='cls_loss', tensor=cross_entropy_mean)
+
+        # total_loss
+        total_loss = l2_loss + cross_entropy_mean
+        tf.summary.scalar(name='total_loss', tensor=total_loss)
+
+        return total_loss
 
 

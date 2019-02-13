@@ -25,7 +25,7 @@ def get_var_cpu_with_decay(name, shape, l2_decay, initializer, training):
     with tf.device('/cpu:0'):
         var = tf.get_variable(name=name, shape=shape, initializer=initializer, dtype=tf.float32, trainable=training)
     weight_decay = tf.multiply(tf.nn.l2_loss(var), l2_decay, name='weight_loss')
-    tf.add_to_collection('losses', weight_decay)
+    tf.add_to_collection('l2_losses', weight_decay)
 
     return var
 
@@ -259,7 +259,7 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
         gamma = get_var_cpu_no_decay(name='gamma', shape=[num_filters], initializer=tf.ones_initializer(), training=True)
         print('Create {0}, {1}'.format(re.sub(':0', '', gamma.name), [num_filters]))
         # compute local batch mean, var and update moving_mean, moving_var
-        batch_mean, batch_variance = tf.nn.moments(inputs, axes=[0, 2, 3], keepdims=False) # produces two scalars
+        batch_mean, batch_variance = tf.nn.moments(inputs, axes=[0, 2, 3], keep_dims=False) # produces two scalars
         update_mean_op = moving_averages.assign_moving_average(moving_mean, batch_mean, momentum)
         update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
         # in this case, moving statistic will be updated here before the actual batch norm execution
