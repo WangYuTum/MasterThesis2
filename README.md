@@ -30,11 +30,11 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
 
 
 ## TODO lists
-* Load pre-trained model on ImageNet2012
+* **(Done)** Load pre-trained model on ImageNet2012
     * **(Done)** Verify validation on single GPU implementation
         * Official accuracy: 76.47% (fp32)
         * Test accuracy: 76.47% (fp32)
-    * Verify validation on multiple GPUs implementation
+    * **(Done)** Verify validation on multiple GPUs implementation
 * Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
     * Verify validation on single GPU
 * Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs

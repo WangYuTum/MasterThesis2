@@ -256,7 +256,7 @@ def build_dataset(num_gpu=2, batch=100, val_record_dir='/storage/remote/atbeetz2
     subset = []
 
     # create dataset, reading all validation tfrecord files, default number of files = 128
-    dataset = tf.data.Dataset.list_files(file_list) # dataset contains mulitple files
+    dataset = tf.data.Dataset.list_files(file_pattern=file_list, shuffle=False) # dataset contains mulitple files, don't shuffle
     # seperate a unique part of the dataset according to number of gpus
     for gpu_id in range(num_gpu):
         subset.append(dataset.shard(num_shards=num_gpu, index=gpu_id))
@@ -267,14 +267,15 @@ def build_dataset(num_gpu=2, batch=100, val_record_dir='/storage/remote/atbeetz2
                                                                                             compression_type='GZIP',
                                                                                             num_parallel_reads=4),
                                                    cycle_length=4, block_length=100, num_parallel_calls=4)
-        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=1600) # prefetch and buffer 1600 examples/images internally
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=5000) # prefetch and buffer 5000 examples/images internally
         subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
         if data_format == 'channels_first':
-            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 8 examples at once
+            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].batch(batch) # inference 100 images for one feed-forward
-        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=32)  # prefetch and buffer 16 batches internally
+        subset[gpu_id] = subset[gpu_id].batch(batch) # inference batch images for one feed-forward
+        # prefetch and buffer 128 batches internally, since GPU is much faster than CPU during inference we need large prefetch buffer
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=128)
 
     print('Dataset pipeline built for {} GPUs.'.format(num_gpu))
 
