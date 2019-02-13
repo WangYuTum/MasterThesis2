@@ -249,7 +249,7 @@ def build_dataset(val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfre
     print('Got {} tfrecords.'.format(len(file_list)))
 
     # create dataset, reading multiple shards
-    dataset = tf.data.Dataset.list_files(file_list) # dataset contains mulitple files
+    dataset = tf.data.Dataset.list_files(file_pattern=file_list, shuffle=False) # dataset contains mulitple files
     # process 8 files concurrently and interleave blocks of 10 records from each file
     dataset = dataset.interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
                                                                           compression_type='GZIP',
