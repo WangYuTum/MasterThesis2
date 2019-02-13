@@ -37,7 +37,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     #######################################################################
     # build data pipeline for multiple GPUs
     dataset_gpus = imgnet_val_pipeline.build_dataset(num_gpu=_NUM_GPU, batch=batch_size,
-                                                     val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val',
+                                                     val_record_dir='/storage/slurm/wangyu/imagenet/tfrecord_val',
                                                      is_training=False, data_format='channels_first')
     iterator_gpus = [] # data iterators for different GPUs
     next_element_gpus = [] # element getter for different GPUs
@@ -51,8 +51,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # common attributes
     model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
                 'batch': batch_size}
-    pred_ops = []
-    get_gt_ops = []
+    tower_correct_list = []
     with tf.variable_scope(tf.get_variable_scope()): # define empty var_scope for the purpose of reusing vars on multi-gpu
         for gpu_id in range(_NUM_GPU):
             with tf.device('/gpu:%d'%gpu_id):
@@ -63,14 +62,17 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     dense_out = model.build_model(inputs=next_element_gpus[gpu_id]['image'], training=_TRAINING)
                     pred_label = model.inference(dense_out)  # return a vector [batch]
                     gt_label = tf.reshape(next_element_gpus[gpu_id]['label'], [-1])  # to a vector [batch]
-
-                    # save ops for sess run
-                    pred_ops.append(pred_label)
-                    get_gt_ops.append(gt_label)
+                    tower_correct = tf.reduce_sum(tf.cast(tf.math.equal(tf.cast(pred_label, tf.int32), gt_label), tf.int32))
+                    tower_correct_list.append(tower_correct)
 
                     # reuse var for the next tower
                     tf.get_variable_scope().reuse_variables()
 
+    # aggregate number of correct predictions from multiple towers, also the synchronization point
+    num_correct = tf.reduce_sum(tower_correct_list)
+
+    dump_sum = tf.summary.scalar(name='dump', tensor=1.0)
+    merged_sum = tf.summary.merge_all()
     saver_imgnet = tf.train.Saver()
     init = tf.global_variables_initializer()
 
@@ -84,26 +86,25 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     sess_config.allow_soft_placement=True
     sess_config.gpu_options.allow_growth = True
     with tf.Session(config=sess_config) as sess:
+        sum_writer = tf.summary.FileWriter(logdir='/storage/slurm/wangyu/imagenet/tfboard/imgnet_val', graph=sess.graph)
         sess.run(init)
 
         # load weights
         saver_imgnet.restore(sess, model_params['load_weight'])
         print('Successfully loaded weights from {}'.format(model_params['load_weight']))
 
-        num_correct = 0
+        sum_correct = 0
         print('Start inference ...')
         # run inference until all GPUs finished examples
         start_t = time.time()
         for run_i in range(num_runs):
             print('Iter {}'.format(run_i))
-            pred_gt_labels_ = sess.run(pred_ops+get_gt_ops)
-            # aggregate predictions
-            for i in range(_NUM_GPU):
-                pred_label_ = np.array(pred_gt_labels_[i], dtype=np.int32).reshape(-1)
-                gt_label_ = np.array(pred_gt_labels_[i+_NUM_GPU], dtype=np.int32).reshape(-1)
-                num_correct += np.sum(pred_label_ == gt_label_)
+            num_correct_, merged_sum_ = sess.run([num_correct, merged_sum])
+            print('Num correct: {}'.format(num_correct_))
+            sum_correct += num_correct_
+            sum_writer.add_summary(merged_sum_, run_i)
         end_t = time.time()
-        print('Inference done in {} seconds. Accuracy: {}'.format(end_t-start_t, num_correct / _NUM_VAL))
+        print('Inference done in {} seconds. Accuracy: {}, Num correct: {}'.format(end_t-start_t, sum_correct / _NUM_VAL, sum_correct))
 
 
 
