@@ -17,7 +17,7 @@ import time
 
 _NUM_VAL = 50000
 _TRAINING = False
-_NUM_GPU = 2
+_NUM_GPU = 4
 _NUM_SHARDS = 128
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
