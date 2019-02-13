@@ -266,7 +266,7 @@ def build_dataset(num_gpu=2, batch=100, val_record_dir='/storage/remote/atbeetz2
         subset[gpu_id] = subset[gpu_id].interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
                                                                                             compression_type='GZIP',
                                                                                             num_parallel_reads=4),
-                                                   cycle_length=8, block_length=10, num_parallel_calls=4)
+                                                   cycle_length=4, block_length=100, num_parallel_calls=4)
         subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=1600) # prefetch and buffer 1600 examples/images internally
         subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
         if data_format == 'channels_first':
@@ -274,7 +274,7 @@ def build_dataset(num_gpu=2, batch=100, val_record_dir='/storage/remote/atbeetz2
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
         subset[gpu_id] = subset[gpu_id].batch(batch) # inference 100 images for one feed-forward
-        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=16)  # prefetch and buffer 16 batches internally
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=32)  # prefetch and buffer 16 batches internally
 
     print('Dataset pipeline built for {} GPUs.'.format(num_gpu))
 

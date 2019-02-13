@@ -37,7 +37,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     #######################################################################
     # build data pipeline for multiple GPUs
     dataset_gpus = imgnet_val_pipeline.build_dataset(num_gpu=_NUM_GPU, batch=batch_size,
-                                                     val_record_dir='/storage/remote/atbeetz21/wangyu/imagenet/tfrecord_val',
+                                                     val_record_dir='/storage/slurm/wangyu/imagenet/tfrecord_val',
                                                      is_training=False, data_format='channels_first')
     iterator_gpus = [] # data iterators for different GPUs
     next_element_gpus = [] # element getter for different GPUs
@@ -83,6 +83,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     sess_config = tf.ConfigProto()
     sess_config.allow_soft_placement=True
     sess_config.gpu_options.allow_growth = True
+    sess_config.log_device_placement = True
     with tf.Session(config=sess_config) as sess:
         sess.run(init)
 
