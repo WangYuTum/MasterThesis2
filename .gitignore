@@ -4,6 +4,9 @@
 # Python Notebook
 notebook/.ipynb_checkpoints/
 
+# slurm output
+slurm-*.out
+
 # data
 data/
 tmp_data/

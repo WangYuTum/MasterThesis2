@@ -27,7 +27,7 @@ class ResNet():
         self.stage_number_ = params.get('stage_numbers', [2, 3, 4, 5])
         self.num_blocks_ = params.get('num_blocks', [3, 4, 6, 3])
         self.res_strides_ = params.get('res_strides', [1, 2, 2, 2])
-        self.bn_momentum_ = params.get('bn_momentum', 0.9)
+        self.bn_momentum_ = params.get('bn_momentum', 0.997)
         self.bn_epsilon_ = params.get('bn_epsilon', 1e-5)
 
         # below are BN params of pre-trained ImageNet of ResNet-50-v2
@@ -129,7 +129,7 @@ class ResNet():
 
         # l2_loss, already multiplied by decay when created graph
         l2_loss = tf.add_n(tf.get_collection('l2_losses'), name='l2_loss')
-        tf.summary.scalar(name='l2_loss', tensor=l2_loss)
+        tf.summary.scalar(name='l2_loss_weighted', tensor=l2_loss)
 
         # cls loss
         gt_label = tf.cast(tf.reshape(gt_label, [-1]), tf.int64)

@@ -10,6 +10,7 @@ from __future__ import print_function
 import sys
 import tensorflow as tf
 sys.path.append('..')
+from core import optimizer
 from core import resnet
 from data_util import imgnet_train_pipeline
 import time
@@ -18,9 +19,22 @@ _NUM_TRAIN = 1281167
 _TRAINING = True
 _NUM_GPU = 1
 _NUM_SHARDS = 1024
-_BATCH_SIZE = 64
+_BATCH_SIZE = 128
 _EPOCHS = 100
-_INIT_LR = 0.1
+_BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
+_BN_EPSILON = 1e-5
+_BNORM = 512 # fixed
+
+_OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
+if _OPTIMIZER == 'adam':
+    _INIT_LR = 0.05 # can try 0.1 (b=128)
+elif _OPTIMIZER == 'momentum':
+    _INIT_LR = 0.256 # will be scaled to 0.064 (b=128, sgd), 0.128 (b=256, sgd), 0.256 (b=512, sgd)
+else:
+    _INIT_LR = 0.1
+
+_ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
+_MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_1gpu_scratch/imgnet_1gpu_scratch.ckpt'
 _SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_single_gpu'
@@ -44,8 +58,18 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     iterator = dataset.make_one_shot_iterator()
     next_element = iterator.get_next()
 
+    # global step, incremented automatically by 1 after each apply_gradients
+    global_step = tf.get_variable(name='global_step', dtype=tf.int64, shape=[],
+                                  initializer=tf.zeros_initializer(), trainable=False)
+
     # define optimizer
-    opt = tf.train.AdamOptimizer(learning_rate=_INIT_LR)
+    if _OPTIMIZER == 'adam':
+        opt = optimizer.get_adam_opt(init_lr=_INIT_LR, epsilon=_ADAM_EPSILON)
+    elif _OPTIMIZER == 'momentum':
+        opt = optimizer.get_momentum_opt(base_lr=_INIT_LR, batches_per_epoch=iters_per_epoch, global_step=global_step,
+                                         batch_size=_BATCH_SIZE, momentum=_MOMENTUM_OPT, bnorm=_BNORM)
+    else:
+        opt = tf.train.AdamOptimizer(learning_rate=_INIT_LR, epsilon=_ADAM_EPSILON)
 
     #######################################################################
     # Build model on single GPU
@@ -53,10 +77,10 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # common attributes
     model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
                     'batch': _BATCH_SIZE,
-                    'init_lr': _INIT_LR}
-    # global step, incremented automatically by 1 after each apply_gradients
-    global_step = tf.get_variable(name='global_step', dtype=tf.int64, shape=[],
-                                  initializer=tf.zeros_initializer(), trainable=False)
+                    'init_lr': _INIT_LR,
+                    'bn_momentum': _BN_MOMENTUM,
+                    'bn_epsilon': _BN_EPSILON}
+
     with tf.device('/gpu:0'):
         print('Building model on GPU {}'.format(0))
 
@@ -64,6 +88,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         model = resnet.ResNet(model_params)
         dense_out = model.build_model(inputs=next_element['image'], training=_TRAINING)
         total_loss = model.loss(dense_out, next_element['label'])
+        # img_sum = tf.summary.image(name='img', tensor=tf.transpose(next_element['image'], [0, 2, 3, 1]), max_outputs=10)
 
         # compute gradient on the GPU
         grads = opt.compute_gradients(loss=total_loss)
@@ -104,10 +129,11 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
                 _, loss_v = sess.run([train_op, total_loss])
+                #_ = sess.run([next_element])
 
                 # print loss
                 if iter_i % 20 == 0:
-                    print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v))
+                    print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:
                     summary_out = sess.run(summary_op)
@@ -117,6 +143,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                 saver_imgnet.save(sess=sess, save_path = _SAVE_CHECKPOINT, global_step=global_step,
                                   write_meta_graph=False)
                 print('Saved checkpoint after {} epochs'.format(ep_i+1))
+        sum_writer.flush()
+        sum_writer.close()
 
 
 
