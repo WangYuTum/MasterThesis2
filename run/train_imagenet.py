@@ -17,9 +17,10 @@ import time
 
 _NUM_TRAIN = 1281167
 _TRAINING = True
-_NUM_GPU = 1
+_NUM_GPU = 4
 _NUM_SHARDS = 1024
-_BATCH_SIZE = 128
+_BATCH_SIZE = 256
+_BATCH_PER_GPU = _BATCH_SIZE / _NUM_GPU
 _EPOCHS = 100
 _BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
@@ -27,7 +28,7 @@ _BNORM = 512 # fixed
 
 _OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
-    _INIT_LR = 0.05 # can try 0.1 (b=128)
+    _INIT_LR = 0.05 # can try 0.1 (b=128), 0.2 (b=256)
 elif _OPTIMIZER == 'momentum':
     _INIT_LR = 0.256 # will be scaled to 0.064 (b=128, sgd), 0.128 (b=256, sgd), 0.256 (b=512, sgd)
 else:
@@ -50,9 +51,10 @@ iters_total = _EPOCHS * iters_per_epoch
 
 with tf.Graph().as_default(), tf.device('/cpu:0'):
     #######################################################################
-    # Prepare data pipeline for single GPU
+    # Prepare data pipeline for multiple GPUs
     #######################################################################
-    [dataset] = imgnet_train_pipeline.build_dataset(num_gpu=_NUM_GPU, batch_size=_BATCH_SIZE,
+    # TODO: setup data pipeline for multi GPUs
+    [dataset] = imgnet_train_pipeline.build_dataset(num_gpu=_NUM_GPU, batch_size=_BATCH_PER_GPU,
                                                     train_record_dir=_DATA_SOURCE,
                                                     is_training=_TRAINING, data_format='channels_first')
     iterator = dataset.make_one_shot_iterator()
