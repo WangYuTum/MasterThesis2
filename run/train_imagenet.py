@@ -20,7 +20,7 @@ _TRAINING = True
 _NUM_GPU = 4
 _NUM_SHARDS = 1024
 _BATCH_SIZE = 512 # p6000_4: 512, titanx_4: 256
-_BATCH_PER_GPU = _BATCH_SIZE / _NUM_GPU
+_BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU)
 _EPOCHS = 100
 _BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
@@ -97,7 +97,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     model = resnet.ResNet(model_params)
                     dense_out = model.build_model(inputs=next_element_gpus[gpu_id]['image'], training=_TRAINING)
                     loss = model.loss(dense_out, next_element_gpus[gpu_id]['label'], scope)
-                    tower_loss.append(tower_loss)
+                    tower_loss.append(tf.expand_dims(loss, 0))
+                    print('Model built on tower_{}'.format(gpu_id))
 
                     # reuse vars for the next tower
                     tf.get_variable_scope().reuse_variables()
@@ -107,7 +108,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     tower_grad.append(grads_and_vars)
 
     # get averaged loss across towers for tensorboard display
-    avg_loss = tf.reduce_mean(tower_loss)
+    tower_loss = tf.concat(axis=0, values=tower_loss)
+    avg_loss = tf.reduce_mean(tower_loss, axis=0)
     tf.summary.scalar(name='avg_loss', tensor=avg_loss)
 
     # average grads across all towers, also the synchronization point
@@ -132,6 +134,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     with tf.Session(config=sess_config) as sess:
         # init all variables
         sess.run(init)
+        print('All variables initialized.')
 
         # get summary writer
         sum_writer = tf.summary.FileWriter(logdir=_SAVE_SUM, graph=sess.graph)
@@ -146,6 +149,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         print('Number of iterations per epoch: {}'.format(iters_per_epoch))
         print('Batch size: {}'.format(_BATCH_SIZE))
         print('Batch size per GPU: {}'.format(_BATCH_PER_GPU))
+        print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr))
         time.sleep(10)
 
         # start training

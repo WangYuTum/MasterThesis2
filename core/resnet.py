@@ -130,6 +130,7 @@ class ResNet():
 
         # NOTE that the model(variables) have been built, we need to extract loss for each
         # individual tower
+        print('Building loss...')
 
         #########################################################
         # l2_loss, already multiplied by decay when created graph.

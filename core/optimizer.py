@@ -78,4 +78,4 @@ def average_grads(tower_grads):
         grad_and_var = (grad, var)
         avg_grads.append(grad_and_var)
 
-    return
+    return avg_grads
