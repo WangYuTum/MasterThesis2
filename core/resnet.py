@@ -120,25 +120,36 @@ class ResNet():
 
         return pred_label
 
-    def loss(self, dense_out, gt_label):
+    def loss(self, dense_out, gt_label, scope):
         '''
         :param dense_out: output of dense layer with shape [batch, 1001]
         :param gt_label: gt label of current batch with shape [batch]
+        :param scope: context of the current tower, VERY important in multi-GPU setup
         :return: scalar lose (train loss + l2_loss)
         '''
 
-        # l2_loss, already multiplied by decay when created graph
-        l2_loss = tf.add_n(tf.get_collection('l2_losses'), name='l2_loss')
-        tf.summary.scalar(name='l2_loss_weighted', tensor=l2_loss)
+        # NOTE that the model(variables) have been built, we need to extract loss for each
+        # individual tower
 
-        # cls loss
+        #########################################################
+        # l2_loss, already multiplied by decay when created graph.
+        #########################################################
+        # Extract the l2 loss for current tower, and add to summary
+        losses = tf.get_collection('l2_losses', scope=scope)
+        l2_total = tf.add_n(losses)
+        tf.summary.scalar(name='%s_l2'%scope, tensor=l2_total)
+
+        #########################################################
+        # classification loss
+        #########################################################
+        # Compute loss for current tower, and add to summary
         gt_label = tf.cast(tf.reshape(gt_label, [-1]), tf.int64)
         cross_entropy_mean = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_label, logits=dense_out))
-        tf.summary.scalar(name='cls_loss', tensor=cross_entropy_mean)
+        tf.summary.scalar(name='%s_cls'%scope, tensor=cross_entropy_mean)
 
-        # total_loss
-        total_loss = l2_loss + cross_entropy_mean
-        tf.summary.scalar(name='total_loss', tensor=total_loss)
+        # total_loss of the current tower
+        total_loss = l2_total + cross_entropy_mean
+        tf.summary.scalar(name='%s_total_loss'%scope, tensor=total_loss)
 
         return total_loss
 

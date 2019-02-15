@@ -211,7 +211,7 @@ def get_filenames(is_training, data_dir):
 ########################################################################
 # Build TF Dataset of ImageNet train pipeline
 ########################################################################
-def build_dataset(num_gpu=1, batch_size=128, train_record_dir='/storage/slurm/wangyu/imagenet/tfrecord_train',
+def build_dataset(num_gpu=2, batch_size=64, train_record_dir='/storage/slurm/wangyu/imagenet/tfrecord_train',
                   is_training=True, data_format='channels_first'):
     """
     Note that though each gpu process a unique part of the dataset, the data pipeline is built
@@ -242,12 +242,12 @@ def build_dataset(num_gpu=1, batch_size=128, train_record_dir='/storage/slurm/wa
         # process 4 files concurrently and interleave blocks of 10 records from each file
         subset[gpu_id] = subset[gpu_id].interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
                                                                                             compression_type='GZIP',
-                                                                                            num_parallel_reads=6),
-                                                   cycle_length=10, block_length=50, num_parallel_calls=6)
+                                                                                            num_parallel_reads=4),
+                                                   cycle_length=10, block_length=50, num_parallel_calls=4)
         subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*num_gpu*2) # prefetch
-        subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=6) # parallel parse 4 examples at once
+        subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
         if data_format == 'channels_first':
-            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=6) # parallel parse 4 examples at once
+            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
         subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=10000)
