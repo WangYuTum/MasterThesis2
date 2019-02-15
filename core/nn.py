@@ -243,28 +243,41 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
                                            scale=gamma, variance_epsilon=epsilon)
     else:
         # we must do the following:
-        #   * make beta, gamma as trainable parameters on cpu:0
-        #   * make moving_mean, moving_var as non-trainable parameters on gpu:0
-        #   * load moving_mean, moving_variance, beta, gamma if there's pre-trained checkpoint
-        #   * define ops to compute local batch mean, var (they are used to normalize the inputs)
-        #   * define ops to compute moving_mean, moving_var (they only need to be updated for each iteration, and used during inference)
-        moving_mean = get_var_gpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
-                                           training=False)
-        print('Create {0}, {1}'.format(re.sub(':0', '', moving_mean.name), [num_filters]))
-        moving_variance = get_var_gpu_no_decay(name='moving_variance', shape=[num_filters], initializer=tf.constant_initializer(1),
+        #   * (all towers) make beta, gamma as trainable parameters on cpu:0
+        #   * (On tower_0) make moving_mean, moving_var as non-trainable parameters on gpu:0 for
+        #   * (On tower_0) load moving_mean, moving_variance, beta, gamma if there's pre-trained checkpoint
+        #   * (not shared) define ops to compute local batch mean, var (they are used to normalize the inputs)
+        #   * (On tower_0) define ops to compute moving_mean, moving_var (they only need to be updated for each iteration, and used during inference)
+
+        # get current tower context
+        tower_context = tf.get_default_graph().get_name_scope()
+
+        # if in tower_0, construct moving_mean, moving_variance only on GPU_0
+        if tower_context.find('tower_0') != -1:
+            moving_mean = get_var_gpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
                                                training=False)
-        print('Create {0}, {1}'.format(re.sub(':0', '', moving_variance.name), [num_filters]))
+            print('Create {0}, {1}'.format(re.sub(':0', '', moving_mean.name), [num_filters]))
+            moving_variance = get_var_gpu_no_decay(name='moving_variance', shape=[num_filters], initializer=tf.constant_initializer(1),
+                                                   training=False)
+            print('Create {0}, {1}'.format(re.sub(':0', '', moving_variance.name), [num_filters]))
+
+        # beta, gamma are constructed on CPU, shared across all GPUs
         beta = get_var_cpu_no_decay(name='beta', shape=[num_filters], initializer=tf.zeros_initializer(), training=True)
         print('Create {0}, {1}'.format(re.sub(':0', '', beta.name), [num_filters]))
         gamma = get_var_cpu_no_decay(name='gamma', shape=[num_filters], initializer=tf.ones_initializer(), training=True)
         print('Create {0}, {1}'.format(re.sub(':0', '', gamma.name), [num_filters]))
+
+        # batch_mean, batch_variance are computed for each individual tower(GPU), not shared
         # compute local batch mean, var and update moving_mean, moving_var
         batch_mean, batch_variance = tf.nn.moments(inputs, axes=[0, 2, 3], keep_dims=False) # produces two scalars
-        update_mean_op = moving_averages.assign_moving_average(moving_mean, batch_mean, momentum)
-        update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
-        # in this case, moving statistic will be updated here before the actual batch norm execution
-        with tf.control_dependencies([update_mean_op, update_var_op]):
-            inputs = tf.identity(inputs)
+
+        # if in tower_0, update moving stats
+        if tower_context.find('tower_0') != -1:
+            update_mean_op = moving_averages.assign_moving_average(moving_mean, batch_mean, momentum)
+            update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
+            # in this case, moving statistic will be updated here before the actual batch norm execution
+            with tf.control_dependencies([update_mean_op, update_var_op]):
+                inputs = tf.identity(inputs)
 
         # normalize the inputs using local batch statistics
         batch_mean = tf.reshape(batch_mean, new_shape)
@@ -273,8 +286,6 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
         gamma = tf.reshape(gamma, new_shape)
         inputs = tf.nn.batch_normalization(x=inputs, mean=batch_mean, variance=batch_variance, offset=beta,
                                            scale=gamma, variance_epsilon=epsilon)
-
-    ###############################  Multi-GPU Impl.  ##################################
 
     return inputs
 
