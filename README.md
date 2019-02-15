@@ -7,38 +7,29 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
  via mask propagation. We believe that tracking object pixels is feasible even if the object motion is non-rigid as long as the model is trained using a large
  amount of data. Flownet \[[5](https://arxiv.org/abs/1504.06852)\] is a good example of tracking scene pixels from one frame to another regardless of object categories.
 
-## Backbone
-* ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
-* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
-* (TODO)Train the above FPN on Object Detection Dataset to verify correctness (Multi-GPU).
-* (TODO)Extend the above FPN by adding additional cross-correlation layers.
-* (TODO)Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
-consecutive frames (Multi-GPU).
-
 
 ## Tensorflow
 * TF version = 1.12.0
 * CUDA 9.0, cuDNN >= 7.2
-* (Optional) NCCL 2.2 for multi-gpu
+* (Optional) NCCL 2.2 for multi-gpu if use batch stats synchronization
+
+
+## GPU
+* **Training** 4xP6000 (24GB), batch=512, adam(lr=0.256, ep=0.01), BN_mom=0.95
+* **TODO** 4xP6000 (24GB), batch=512, SGD_momentum(lr=0.256, momentum=0.9), BN_mom=0.95
+* **TODO** Use Batch stats synchronization via Nvidia NCCL
+
 
 ## Notes on Multi-GPU (TF_version = 1.12.0)
-* NCCL 2.2 is a must
+* NCCL 2.2 is a must if use multi-gpu batch stats synchronization
 * All model variables (convolution kernels, biases, dense weights, batch_norm gammas and betas) are created on CPU using tf.get_variable explicitly. All model parameters
 are shared across GPUs (but not graphs/operations which are specified via tf.name_scope)
 * Moving statistics are only created and updated locally on the 1st tower (tower_0)
 * Specify tf.name_scope when building models on different towers (since different towers need to execute different graphs/operations)
 
 
-## TODO lists
-* **(Done)** Load pre-trained model on ImageNet2012
-    * **(Done)** Verify validation on single GPU implementation
-        * Official accuracy: 76.47% (fp32)
-        * Test accuracy: 76.47% (fp32)
-    * **(Done)** Verify validation on multiple GPUs implementation
-* Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
-    * Verify validation on single GPU
-* Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
-    * Verify validation on multiple GPUs
+## Dataset
+* ImageNet2012 Train Set
 
 
 
