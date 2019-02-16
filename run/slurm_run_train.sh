@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train_gpu4_b512_sgd
+#SBATCH --job-name=train_gpu4_b256_sgd
 #SBATCH --nodes=1
 #SBATCH --cpus=16
 #SBATCH --mem=64GB
