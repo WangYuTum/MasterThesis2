@@ -49,4 +49,4 @@ def get_momentum_opt(base_lr, batches_per_epoch, global_step, batch_size=512, mo
     lr = lr_scheduler(base_lr, batches_per_epoch, batch_size, global_step, bnorm)
     opt = tf.train.MomentumOptimizer(learning_rate=lr, momentum=momentum)
 
-    return opt
+    return opt, lr

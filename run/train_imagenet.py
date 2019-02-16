@@ -25,7 +25,7 @@ _BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
 _BNORM = 512 # fixed
 
-_OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
+_OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.05 # can try 0.1 (b=128)
 elif _OPTIMIZER == 'momentum':
@@ -39,7 +39,7 @@ _DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_1gpu_scratch/imgnet_1gpu_scratch.ckpt'
 _SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_single_gpu'
 _SAVE_CHECKPOINT_EP = 10
-_SAVE_SUM_ITER = 50
+_SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
@@ -65,11 +65,14 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # define optimizer
     if _OPTIMIZER == 'adam':
         opt = optimizer.get_adam_opt(init_lr=_INIT_LR, epsilon=_ADAM_EPSILON)
+        lr = _INIT_LR
     elif _OPTIMIZER == 'momentum':
-        opt = optimizer.get_momentum_opt(base_lr=_INIT_LR, batches_per_epoch=iters_per_epoch, global_step=global_step,
+        opt, lr = optimizer.get_momentum_opt(base_lr=_INIT_LR, batches_per_epoch=iters_per_epoch, global_step=global_step,
                                          batch_size=_BATCH_SIZE, momentum=_MOMENTUM_OPT, bnorm=_BNORM)
     else:
         opt = tf.train.AdamOptimizer(learning_rate=_INIT_LR, epsilon=_ADAM_EPSILON)
+        lr = _INIT_LR
+    tf.summary.scalar('learning_rate', tensor=lr)
 
     #######################################################################
     # Build model on single GPU
