@@ -26,7 +26,7 @@ _BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
 _BNORM = 512 # fixed
 
-_OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
+_OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.256 # can try 0.1 (b=128), 0.128 (b=256), 0.256 (b=512)
 elif _OPTIMIZER == 'momentum':
@@ -37,8 +37,8 @@ else:
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_4gpu_scratch/imgnet_4gpu_scratch.ckpt'
-_SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_4gpu'
+_SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_4gpu_scratch_sgd/imgnet_4gpu_scratch.ckpt'
+_SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_4gpu_sgd'
 _SAVE_CHECKPOINT_EP = 10
 _SAVE_SUM_ITER = 50
 config_gpu = tf.ConfigProto()
