@@ -19,7 +19,7 @@ _NUM_TRAIN = 1281167
 _TRAINING = True
 _NUM_GPU = 4
 _NUM_SHARDS = 1024
-_BATCH_SIZE = 512 # p6000_4: 512, titanx_4: 256
+_BATCH_SIZE = 256 # p6000_4: 512, titanx_4: 256
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU)
 _EPOCHS = 100
 _BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
@@ -40,7 +40,7 @@ _DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_4gpu_scratch_sgd/imgnet_4gpu_scratch.ckpt'
 _SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_4gpu_sgd'
 _SAVE_CHECKPOINT_EP = 10
-_SAVE_SUM_ITER = 50
+_SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
