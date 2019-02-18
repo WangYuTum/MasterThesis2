@@ -37,8 +37,8 @@ else:
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_4gpu_scratch_sgd/imgnet_4gpu_scratch.ckpt'
-_SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_4gpu_sgd'
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet/chkp/resnet_imgnet_4gpu_scratch_sgd/imgnet_4gpu_scratch.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/imagenet/tfboard/imgnet_train_4gpu_sgd'
 _SAVE_CHECKPOINT_EP = 10
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
