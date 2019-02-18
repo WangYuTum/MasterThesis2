@@ -12,9 +12,9 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 
 ## Backbone
 * ResNet-50-v2 pre-trained on ImageNet2012 (from Tensorflow official model zoo \[[6](https://github.com/tensorflow/models/tree/r1.8.0/official/resnet)\])
-* (TODO)Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
-* (TODO)Train the above FPN on Object Detection Dataset to verify correctness (Multi-GPU).
+* Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
 * (TODO)Extend the above FPN by adding additional cross-correlation layers (Multi-GPU).
+* (TODO) Train extended FPN on bounding box tracking.
 * (TODO)Train the above network on multiple datasets with extensive data augmentations. Only training bbx tracking between
 consecutive frames (Multi-GPU).
 

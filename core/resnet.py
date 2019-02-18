@@ -79,6 +79,8 @@ class ResNet():
         '''
 
         # the backbone
+        stage_out = [] # outputs of c2 ~ c5
+        pyramid_out = [] # outputs of p2 ~ p5
         with tf.variable_scope('backbone'):
             ############################ initial conv 7x7, down-sample 4x ##################################
             inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
@@ -95,7 +97,58 @@ class ResNet():
                                    num_blocks=self.num_blocks_[stage_id-2],
                                    stride=self.res_strides_[stage_id-2],
                                    training=training)
+                inputs = tf.identity(inputs, name='C%d_out'%stage_id)
+                stage_out.append(inputs)
 
+            ############################ Feature Pyramids ##################################
+            with tf.variable_scope('P5'):
+                output = nn.conv_layer(inputs=stage_out[3], filters=[2048, 256], kernel_size=1, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                output = tf.identity(output, name='P5')
+                pyramid_out.append(output)
+            with tf.variable_scope('P4'):
+                # 1x1 conv
+                output = nn.conv_layer(inputs=stage_out[2], filters=[1024, 256], kernel_size=1, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
+                # feature add
+                output = output + tf.image.resize_images(images=tf.transpose(pyramid_out[0], [0,2,3,1]),
+                                                         size=up_size)
+                output = tf.transpose(output, [0, 3, 1, 2])
+                # feature fuse
+                output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                output = tf.identity(output, name='P4')
+                pyramid_out.append(output)
+            with tf.variable_scope('P3'):
+                # 1x1 conv
+                output = nn.conv_layer(inputs=stage_out[1], filters=[512, 256], kernel_size=1, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
+                # feature add
+                output = output + tf.image.resize_images(images=tf.transpose(pyramid_out[1], [0, 2, 3, 1]),
+                                                         size=up_size)
+                output = tf.transpose(output, [0, 3, 1, 2])
+                # feature fuse
+                output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                output = tf.identity(output, name='P3')
+                pyramid_out.append(output)
+            with tf.variable_scope('P2'):
+                # 1x1 conv
+                output = nn.conv_layer(inputs=stage_out[0], filters=[256, 256], kernel_size=1, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
+                # feature add
+                output = output + tf.image.resize_images(images=tf.transpose(pyramid_out[2], [0, 2, 3, 1]),
+                                                         size=up_size)
+                output = tf.transpose(output, [0, 3, 1, 2])
+                # feature fuse
+                output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
+                                       l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
+                output = tf.identity(output, name='P2')
+                pyramid_out.append(output)
+            pyramid_out.reverse() # to the order of p2, p3, p4, p5
             ############################ ImgNet layers ##################################
             with tf.variable_scope('tail'):
                 inputs = nn.batch_norm(inputs=inputs, training=training, momentum=self.bn_momentum_,
