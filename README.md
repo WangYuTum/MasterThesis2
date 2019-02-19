@@ -17,8 +17,10 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 ## GPU
 * **Trained** 4xP6000 (24GB), batch=512, adam(lr=0.256, ep=0.01), BN_mom=0.95
     * Accuracy: 22.29% (20ep)
-* **Training** 4xTitanXP (12GB), batch=256, SGD_momentum(base_lr=0.256, scaled_lr=0.128, momentum=0.9), BN_mom=0.95
+* **Trained** 4xTitanXP (12GB), batch=256, SGD_momentum(base_lr=0.256, scaled_lr=0.128, momentum=0.9), BN_mom=0.95
     * Accuracy: 49.92 (10ep); training suspended after 80k iters for unknown reason
+* **Training** 4xTitanXP (12GB), batch=256, SGD_momentum(base_lr=0.256, scaled_lr=0.128, momentum=0.9), BN_mom=0.95
+    * Accuracy: 47.87% (10ep), 52.45% (20ep)
 * **TODO** Use Batch stats synchronization via Nvidia NCCL
 
 
