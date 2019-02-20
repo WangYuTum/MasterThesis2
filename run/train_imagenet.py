@@ -80,7 +80,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     tower_loss = []
 
     # common model attributes for all GPUs
-    model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
+    model_params = {'load_weight': '/storage/slurm/wangyu/imagenet/chkp/resnet_imgnet_4gpu_scratch_sgd/imgnet_4gpu_scratch.ckpt-200200',
                     'batch': _BATCH_PER_GPU,
                     'bn_momentum': _BN_MOMENTUM,
                     'bn_epsilon': _BN_EPSILON}
@@ -124,6 +124,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
 
     # saver, summary, init
     saver_imgnet = tf.train.Saver(tf.global_variables())
+    saver_restore = tf.train.Saver() # restore from 40ep
     summary_op = tf.summary.merge_all()
     init = tf.global_variables_initializer()
 
@@ -134,7 +135,10 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     with tf.Session(config=sess_config) as sess:
         # init all variables
         sess.run(init)
+        saver_restore.restore(sess=sess, save_path=model_params['load_weight']) # restore from 40ep
         print('All variables initialized.')
+        print('current global step: {}'.format(global_step.eval()))
+        print('current learning rate: {}'.format(lr.eval()))
 
         # get summary writer
         sum_writer = tf.summary.FileWriter(logdir=_SAVE_SUM, graph=sess.graph)
@@ -153,7 +157,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         time.sleep(10)
 
         # start training
-        for ep_i in range(_EPOCHS):
+        # for ep_i in range(_EPOCHS):
+        for ep_i in range(40, _EPOCHS): # start from ep40
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
                 _, loss_v = sess.run([update_op, avg_loss])
