@@ -102,6 +102,32 @@ def conv_layer(inputs, filters, kernel_size, stride, l2_decay, training, data_fo
 
     return outputs
 
+def conv_layer_var_kernel(inputs, filters, kernel_size, stride, l2_decay, training, data_format):
+    '''
+        Only do convolution, different from conv_layer: kernel can have different size in height and width
+    :param inputs: input tensor
+    :param filters: [in_dim, out_dim]
+    :param kernel_size: size in [height, width]
+    :param stride: single int
+    :param l2_decay: float32 decay
+    :param training: boolean
+    :param data_format: either be "channels_last" or "channels_first"
+    :return: outputs
+    '''
+    # padding
+    if stride > 1:
+        inputs = pad_before_conv(inputs=inputs, kernel_size=kernel_size, data_format=data_format)
+    padding = 'SAME' if stride == 1 else 'VALID'
+    strides = [1, 1, stride, stride] if data_format == 'channels_first' else [1, stride, stride, 1]
+    data_format = 'NCHW' if data_format == 'channels_first' else 'NHWC'
+    kernel = get_var_cpu_with_decay('kernel', [kernel_size[0], kernel_size[1], filters[0], filters[1]],
+                                    l2_decay, tf.glorot_uniform_initializer(), training)
+    print('Create {0}, {1}'.format(re.sub(':0', '', kernel.name), [kernel_size[0], kernel_size[1], filters[0], filters[1]]))
+    outputs = tf.nn.conv2d(input=inputs, filter=kernel, strides=strides, padding=padding,
+                           use_cudnn_on_gpu=True, data_format=data_format)
+
+    return outputs
+
 
 def max_pool(inputs, pool_size, pool_stride, data_format):
     '''
@@ -200,6 +226,70 @@ def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, tr
 
     # fuse with shortcut
     outputs = inputs + shortcut
+
+    return outputs
+
+
+def mask_prop_layer(inputs, training, l2_decay, momentum, epsilon, data_format):
+    '''
+    :param inputs: [16*batch/2, 513, 32, 32]
+    :param l2_decay: l2 weight for kernels
+    :param momentum: decay factor for BN moving statistics
+    :param epsilon: for BN
+    :param training: True during training
+    :param data_format: "channels_first"
+    :return: output
+    '''
+
+    # batch norm first
+    inputs = batch_norm(inputs=inputs, training=training, momentum=momentum, epsilon=epsilon, data_format=data_format)
+
+    # branch_a
+    with tf.variable_scope('a'):
+        with tf.variable_scope('conv1'):
+            conv_a = conv_layer_var_kernel(inputs=inputs, filters=[513, 256], kernel_size=[1,5], stride=1, l2_decay=l2_decay,
+                                           training=training, data_format=data_format) # [16*batch/2, 256, 32, 32]
+            bias_a = get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                          training=training) # [256]
+            print('Create {0}, {1}'.format(bias_a.name, [256]))
+            conv_a = tf.add(conv_a, bias_a) # [16*batch/2, 256, 32, 32]
+
+        with tf.variable_scope('conv2'):
+            conv_a = conv_layer_var_kernel(inputs=conv_a, filters=[256, 256], kernel_size=[5, 1], stride=1, l2_decay=l2_decay,
+                                           training=training, data_format=data_format)  # [16*batch/2, 256, 32, 32]
+            bias_a = get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                          training=training)  # [256]
+            print('Create {0}, {1}'.format(bias_a.name, [256]))
+            conv_a = tf.add(conv_a, bias_a)  # [16*batch/2, 256, 32, 32]
+
+    # branch_b
+    with tf.variable_scope('b'):
+        with tf.variable_scope('conv1'):
+            conv_b = conv_layer_var_kernel(inputs=inputs, filters=[513, 256], kernel_size=[5, 1], stride=1,
+                                           l2_decay=l2_decay, training=training, data_format=data_format)  # [16*batch/2, 256, 32, 32]
+            bias_b = get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                          training=training)  # [256]
+            print('Create {0}, {1}'.format(bias_b.name, [256]))
+            conv_b = tf.add(conv_b, bias_b)  # [16*batch/2, 256, 32, 32]
+
+        with tf.variable_scope('conv2'):
+            conv_b = conv_layer_var_kernel(inputs=conv_b, filters=[256, 256], kernel_size=[1, 5], stride=1,
+                                           l2_decay=l2_decay, training=training, data_format=data_format)  # [16*batch/2, 256, 32, 32]
+            bias_b = get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(), training=training)  # [256]
+            print('Create {0}, {1}'.format(bias_b.name, [256]))
+            conv_b = tf.add(conv_b, bias_b)  # [16*batch/2, 256, 32, 32]
+
+    # fuse branch a + b
+    fused = tf.add(conv_a, conv_b)
+
+    # conv after fuse
+    with tf.variable_scope('fuse'):
+        outputs = conv_layer_var_kernel(inputs=fused, filters=[256, 2], kernel_size=[1, 1], stride=1,
+                                        l2_decay=l2_decay, training=training, data_format=data_format)  # [16*batch/2, 2, 32, 32]
+        bias_out = get_var_cpu_no_decay(name='bias', shape=2, initializer=tf.zeros_initializer(),
+                                      training=training)  # [2]
+        print('Create {0}, {1}'.format(bias_out.name, [256]))
+        outputs = tf.add(outputs, bias_out)  # [16*batch/2, 2, 32, 32]
 
     return outputs
 

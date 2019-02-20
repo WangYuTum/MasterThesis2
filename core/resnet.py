@@ -149,18 +149,66 @@ class ResNet():
                 output = tf.identity(output, name='P2')
                 pyramid_out.append(output)
             pyramid_out.reverse() # to the order of p2, p3, p4, p5
-            ############################ ImgNet layers ##################################
-            with tf.variable_scope('tail'):
-                inputs = nn.batch_norm(inputs=inputs, training=training, momentum=self.bn_momentum_,
-                                       epsilon=self.bn_epsilon_, data_format=self.data_format_)
-                inputs = tf.nn.relu(inputs)
 
-                axes = [2, 3]
-                inputs = tf.reduce_mean(inputs, axes, keepdims=True)
-                inputs = tf.squeeze(inputs, axes) # [batch, 2048]
-                inputs = nn.dense_layer(inputs=inputs, weight_size=[2048, 1001], l2_decay=self.l2_weight_, training=training)
+        ############################ ImgNet layers ##################################
+        with tf.variable_scope('heads'):
+            # during training, each templar/search image have the same shape. [1, 256, 64, 64] from P2
+            # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 64, 64]
+            # templars are [0 : batch_size/2, 256, 64, 64], search images are [batch_size/2 : batch_size, 256, 64, 64]
 
-        return inputs
+            ################################## cross-correlation branch #################################
+            # Note that this branch doesn't have trainable variables
+            # central crop the templar features to 32x32, and make a set of filters from them
+            templar_feat = pyramid_out[0][0:int(self.batch_/2),:,:,:] # get P2 templar feature maps
+            templar_feat = tf.transpose(templar_feat, [0,2,3,1]) # to [n, h, w, c]
+            templar_feat = tf.image.central_crop(image=templar_feat, central_fraction=0.5) # [batch/2, 32, 32, 256]
+            templar_feat = tf.transpose(templar_feat, [1,2,3,0]) # reshape to [32, 32, 256, batch/2]
+            # extract search image feature maps from P2
+            search_feat = pyramid_out[0][int(self.batch_/2):self.batch_,:,:,:] # [batch/2, 256, 64, 64]
+            # do cross-correlations, batch/2 conv operations
+            score_maps = []
+            for batch_i in range(int(self.batch_/2)):
+                input_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
+                input_filter = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
+                score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=1, padding='VALID',
+                           use_cudnn_on_gpu=True, data_format='NCHW') # [1, 1, 33, 33]
+                score_maps.append(score_map)
+            final_scores = tf.concat(axis=0, values=score_maps) # [batch/2, 1, 33, 33]
+            print('Cross correlation layers built.')
+
+            ################################## mask-propagte branch #################################
+            # TODO: take the templar's mask, provided from data pipeline
+            templar_masks = 0 # [batch/2, 1, 32, 32]
+            search_crops = [] # [batch/2, 16, 2]: batch/2 pairs, each pair has 16 crops, each crop has [h,w]
+            # crop feature maps from search feature maps, coordinates provided from data pipeline
+            # reuse the var above: templar_feat [32, 32, 256, batch/2], search_feat [batch/2, 256, 64, 64]
+            concatenated_features = []
+            for batch_i in range(int(self.batch_/2)):
+                batch_i_search_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
+                batch_i_templar_feat = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
+                batch_i_templar_mask = templar_masks[batch_i:batch_i+1, :, :, :] # [1, 1, 32, 32]
+                batch_i_fuses = []
+                for crop_i in range(16):
+                    crop_i_coord = search_crops[batch_i, crop_i, :] # [h, w]
+                    cropped_feat = batch_i_search_feat[:, :, crop_i_coord[0]:crop_i_coord[0]+32, crop_i_coord[1]:crop_i_coord[1]+32] # [1, 256, 32, 32]
+                    # stack them
+                    stack_crop_i = tf.concat(axis=0, values=[tf.transpose(batch_i_templar_feat, [3, 2, 0, 1]),
+                                                             batch_i_templar_mask, cropped_feat]) # [1, 513, 32, 32]
+                    batch_i_fuses.append(stack_crop_i)
+                # stack for this batch_i
+                batch_i_fuses = tf.concat(axis=0, values=batch_i_fuses) # [16, 513, 32, 32]
+                # save for this batch_i
+                concatenated_features.append(batch_i_fuses)
+            # stack for all batches
+            concatenated_features = tf.concat(axis=0, values=concatenated_features) # [16*batch/2, 513, 32, 32]
+
+            # feed to mask propagation convs
+            with tf.variable_scope('mask_prop'):
+                mask_out = nn.mask_prop_layer(inputs=concatenated_features, training=training, l2_decay=self.l2_weight_,
+                                              momentum=self.bn_momentum_, epsilon=self.bn_epsilon_, data_format=self.data_format_)
+                # mask_out has shape [16 * batch/2, 2, 32, 32]
+
+        return final_scores, mask_out
 
     def inference(self, dense_out):
         '''
