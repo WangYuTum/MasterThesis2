@@ -150,7 +150,7 @@ class ResNet():
                 pyramid_out.append(output)
             pyramid_out.reverse() # to the order of p2, p3, p4, p5
 
-        ############################ ImgNet layers ##################################
+        ############################ Loc & Mask layer ##################################
         with tf.variable_scope('heads'):
             # during training, each templar/search image have the same shape. [1, 256, 64, 64] from P2
             # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 64, 64]
