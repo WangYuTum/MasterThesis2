@@ -14,6 +14,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import numpy as np
 import os
 
 _DEFAULT_SIZE = 256
@@ -115,7 +116,7 @@ def parse_record(raw_record, is_training, dtype):
 
   return dict
 
-# TODO
+
 def parse_example_proto(raw_record):
     '''
     :param raw_record: scalar Tensor tf.string containing a serialized Example protocol buffer.
@@ -131,20 +132,30 @@ def parse_example_proto(raw_record):
         'templar/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'templar/colorspace': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'templar/channels': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/bbox': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1), # TODO: templar bbox
+        'templar/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'templar/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'templar/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'templar/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/height': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/colorspace': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'search/channels': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/bbox': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),  # TODO: search bbox
+        'search/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'search/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'search/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'search/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'image/format': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'image/filename': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'templar/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'search/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
     }
     features = tf.parse_single_example(raw_record, feature_map)
+    templar_bbox = [features['templar/bbox/xmin'], features['templar/bbox/ymin'],
+                    features['templar/bbox/xmax'], features['templar/bbox/ymax']]
+    search_bbox = [features['search/bbox/xmin'], features['search/bbox/ymin'],
+                    features['search/bbox/xmax'], features['search/bbox/ymax']]
 
-    return features['templar/encoded'], features['search/encoded'], features['templar/bbox'], features['search/bbox']
+    return features['templar/encoded'], features['search/encoded'], templar_bbox, search_bbox
 
 def mean_image_subtraction(image, means, num_channels):
   """Subtracts the given means from each image channel.
@@ -170,13 +181,65 @@ def mean_image_subtraction(image, means, num_channels):
 
   return image - means
 
+def image_pad(image, pad_value, out_size):
+    '''
+    :param image: Tensor of shape [H,W,3], tf.uint8
+    :param pad_value: Scalar value, int
+    :param out_size: desired output size in height/width
+    :return: padded image of shape [out_size, out_size, 3]
+    '''
+
+    if image.get_shape().ndim != 3:
+        raise ValueError('Input must be of size [height, width, C>0]')
+    if image.dtype != tf.uint8:
+        raise ValueError('Input must be of type tf.uint8')
+    img_height = image.get_shape()[0]
+    img_width = image.get_shape()[1]
+
+    pad_h_total = int(out_size - img_height)
+    pad_w_total = int(out_size - img_width)
+
+    # TODO, use tf.cond for conditional
+    if pad_h_total % 2 == 0:
+        pad_h_begin = int(pad_h_total / 2)
+        pad_h_end = int(pad_h_total / 2)
+    else:
+        pad_h_begin = int(pad_h_total / 2) + 1
+        pad_h_end = int(pad_h_total / 2)
+
+    if pad_w_total % 2 == 0:
+        pad_w_begin = int(pad_w_total / 2)
+        pad_w_end = int(pad_w_total / 2)
+    else:
+        pad_w_begin = int(pad_w_total / 2) + 1
+        pad_w_end = int(pad_w_total / 2)
+
+    pad_value = tf.cast(pad_value, tf.uint8)
+    image = tf.pad(tensor=image, paddings=[[pad_h_begin, pad_h_end],[pad_w_begin, pad_w_end],[0,0]],
+                   mode='CONSTANT', name=None, constant_values=pad_value)
+
+    return image
+
+def distort_bounding_box(input_bbox, random_shift):
+    '''
+    :param input_bbox: [xmin, ymin, xmax, ymax]
+    :param random_shift: integer
+    :return: [xmin', ymin', xmax', ymax']
+    '''
+
+    h_rand = np.random.randint(low=-random_shift, high=random_shift+1, size=None)
+    w_rand = np.random.randint(low=-random_shift, high=random_shift+1, size=None)
+
+    return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand]
+
+
 def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, num_channels, is_training=True):
   """Preprocesses the give templar/search image buffers and the corresponding bbox.
   Args:
     templar_buffer: scalar string Tensor representing the raw JPEG image buffer.
     search_buffer: scalar string Tensor representing the raw JPEG image buffer.
-    templar_bbox:
-    search_bbox:
+    templar_bbox: list [xmin, ymin, xmax, ymax], int
+    search_bbox: list [xmin, ymin, xmax, ymax], int
     num_channels: Integer depth of the image buffer for decoding.
     is_training: `True` if we're pre-processing the image for training and `False` otherwise.
 
@@ -193,10 +256,19 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   search_img = tf.image.decode_jpeg(search_buffer, channels=num_channels) # uint8
 
   ######################################## Process Templar #############################################
-  # TODO: Get tight bbox, randomly shift +-8 pixels
-  templar_bbox = 0
+  # Get tight bbox, randomly shift +-8 pixels
+  templar_bbox = distort_bounding_box(input_bbox=templar_bbox, random_shift=8) # new box [xmin, ymin, xmax, ymax]
+  bbox_h = templar_bbox[3] - templar_bbox[1]
+  bbox_w = templar_bbox[2] - templar_bbox[0]
   # Pad image to [2500, 2500] with mean RGB values
-  mean_rgb = tf.reduce_mean(templar_img)
+  mean_rgb = tf.reduce_mean(templar_img) # tf.uint8
+  templar_img = image_pad(image=templar_img, pad_value=mean_rgb, out_size=2500)
+  # get context margin and compute new bbox
+  p = int((bbox_h + bbox_w) / 4)
+  argmin_dim = tf.math.argmin([bbox_w, bbox_h], axis=0) # 0: shorter in width, 1: shorter in height
+  # TODO, check even/odd
+  extend_val = tf.math.abs(bbox_w-bbox_h) / 2
+
 
 
 
