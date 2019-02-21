@@ -210,6 +210,99 @@ class ResNet():
 
         return final_scores, mask_out
 
+    def loss(self, score_map, score_gt, score_weight, lambda_score, mask_map, mask_gt, mask_weight, lambda_mask, scope):
+        '''
+        :param score_map: [batch/2, 1, 33, 33], pred score map for each pair
+        :param score_gt: [batch/2, 1, 33, 33], gt score map for each pair
+        :param score_weight: [batch/2, 1, 33, 33], balanced weight for score map
+        :param lambda_score: tf.float32, loss weight for score
+        :param mask_map: [16 * batch/2, 2, 32, 32], each pair has 16 seg_mask
+        :param mask_gt: [16 * batch/2, 1, 32, 32], each pair has 16 gt seg_mask
+        :param mask_weight: [16 * batch/2, 1, 32, 32], balanced weight for seg_mask
+        :param lambda_mask: tf.float32, loss weight for mask
+        :param scope: context of the current tower, VERY important in multi-GPU setup
+        :return: total loss
+        '''
+
+        print('Building loss...')
+
+        #########################################################
+        # l2_loss, already multiplied by decay when created graph.
+        #########################################################
+        # Extract the l2 loss for current tower, and add to summary
+        losses = tf.get_collection('l2_losses', scope=scope)
+        l2_total = tf.add_n(losses)
+        tf.summary.scalar(name='%s_l2' % scope, tensor=l2_total)
+
+
+        ########################## Loss for score map ##############################
+        # use balanced cross-entropy on score maps
+        score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
+        tf.summary.scalar(name='%s_score' % scope, tensor=score_loss)
+
+
+        ########################## Loss for segmentation ##############################
+        mask_loss = self.balanced_softmax_cross_entropy(logits=mask_map, gt=mask_gt, weight=mask_weight)
+        tf.summary.scalar(name='%s_mask' % scope, tensor=mask_loss)
+
+
+        ########################## total loss ##############################
+        total_loss = l2_total + lambda_score * score_loss + lambda_mask * mask_loss
+        tf.summary.scalar(name='%s_total_loss' % scope, tensor=total_loss)
+
+        return total_loss
+
+
+    def balanced_sigmoid_cross_entropy(self, logits, gt, weight):
+        '''
+        :param logits: [batch, 1, h, w]
+        :param gt: [batch, 1, h, w]
+        :param weight: [batch, 1, h, w], balanced weight
+        :return: mean loss
+        '''
+
+        # to [n, h, w, c]
+        logits = tf.transpose(logits, [0, 2, 3, 1])
+        gt = tf.transpose(gt, [0, 2, 3, 1])
+        weight = tf.transpose(weight, [0, 2, 3, 1])
+        # reshape -> flatten
+        old_shape = tf.shape(logits)
+        new_shape = [old_shape[0], old_shape[1]*old_shape[2]]
+        logits = tf.reshape(logits, new_shape)
+        gt = tf.reshape(gt, new_shape)
+        weight = tf.reshape(weight, new_shape)
+
+        # compute loss
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gt, logits=logits) # [batch, h*w]
+        balanced_loss = tf.multiply(loss, weight) # [batch, h*w]
+
+        return tf.reduce_mean(balanced_loss)
+
+    def balanced_softmax_cross_entropy(self, logits, gt, weight):
+        '''
+        :param logits: [batch, C, h, w], C is number of classes (=2 if binary segmentation)
+        :param gt: [batch, 1, h, w]
+        :param weight: [batch, 1, h, w], balanced weight
+        :return: mean loss
+        '''
+
+        # to [n, h, w, c]
+        logits = tf.transpose(logits, [0, 2, 3, 1])
+        gt = tf.transpose(gt, [0, 2, 3, 1])
+        weight = tf.transpose(weight, [0, 2, 3, 1])
+        # reshape -> flatten
+        old_shape = tf.shape(logits)
+        logits = tf.reshape(logits, [old_shape[0], old_shape[1] * old_shape[2], old_shape[3]]) # [batch, h*w, c=2]
+        gt = tf.reshape(gt, [old_shape[0], old_shape[1] * old_shape[2]]) # [batch, h*w, 1]
+        weight = tf.reshape(weight, [old_shape[0], old_shape[1] * old_shape[2]]) # [batch, h*w, 1]
+
+        # compute loss
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt, logits=logits)
+        balanced_loss = tf.multiply(loss, weight)  # [batch, h*w]
+
+        return tf.reduce_mean(balanced_loss)
+
+
     def inference(self, dense_out):
         '''
         :param dense_out: a tensor with shape [batch, 1001]
@@ -220,39 +313,5 @@ class ResNet():
         pred_label = tf.reshape(tf.math.argmax(input=prob_out, axis=-1), [-1]) # to a vector
 
         return pred_label
-
-    def loss(self, dense_out, gt_label, scope):
-        '''
-        :param dense_out: output of dense layer with shape [batch, 1001]
-        :param gt_label: gt label of current batch with shape [batch]
-        :param scope: context of the current tower, VERY important in multi-GPU setup
-        :return: scalar lose (train loss + l2_loss)
-        '''
-
-        # NOTE that the model(variables) have been built, we need to extract loss for each
-        # individual tower
-        print('Building loss...')
-
-        #########################################################
-        # l2_loss, already multiplied by decay when created graph.
-        #########################################################
-        # Extract the l2 loss for current tower, and add to summary
-        losses = tf.get_collection('l2_losses', scope=scope)
-        l2_total = tf.add_n(losses)
-        tf.summary.scalar(name='%s_l2'%scope, tensor=l2_total)
-
-        #########################################################
-        # classification loss
-        #########################################################
-        # Compute loss for current tower, and add to summary
-        gt_label = tf.cast(tf.reshape(gt_label, [-1]), tf.int64)
-        cross_entropy_mean = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt_label, logits=dense_out))
-        tf.summary.scalar(name='%s_cls'%scope, tensor=cross_entropy_mean)
-
-        # total_loss of the current tower
-        total_loss = l2_total + cross_entropy_mean
-        tf.summary.scalar(name='%s_total_loss'%scope, tensor=total_loss)
-
-        return total_loss
 
 
