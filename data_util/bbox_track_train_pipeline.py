@@ -196,29 +196,31 @@ def image_pad(image, pad_value, out_size):
     img_height = image.get_shape()[0]
     img_width = image.get_shape()[1]
 
-    pad_h_total = int(out_size - img_height)
-    pad_w_total = int(out_size - img_width)
+    pad_h_total = tf.cast(out_size - img_height, tf.int32)
+    pad_w_total = tf.cast(out_size - img_width, tf.int32)
 
-    # TODO, use tf.cond for conditional
-    if pad_h_total % 2 == 0:
-        pad_h_begin = int(pad_h_total / 2)
-        pad_h_end = int(pad_h_total / 2)
-    else:
-        pad_h_begin = int(pad_h_total / 2) + 1
-        pad_h_end = int(pad_h_total / 2)
+    pad_h_cond = tf.equal(pad_h_total % 2, 0)
+    pad_h_begin = tf.cond(pad_h_cond,
+                          lambda: tf.cast(pad_h_total / 2, tf.int32),
+                          lambda: tf.cast(pad_h_total / 2, tf.int32) + 1)
+    pad_h_end = tf.cond(pad_h_cond,
+                        tf.cast(pad_h_total / 2, tf.int32),
+                        tf.cast(pad_h_total / 2, tf.int32))
 
-    if pad_w_total % 2 == 0:
-        pad_w_begin = int(pad_w_total / 2)
-        pad_w_end = int(pad_w_total / 2)
-    else:
-        pad_w_begin = int(pad_w_total / 2) + 1
-        pad_w_end = int(pad_w_total / 2)
+    pad_w_cond = tf.equal(pad_w_total % 2, 0)
+    pad_w_begin = tf.cond(pad_w_cond,
+                          lambda: tf.cast(pad_w_total / 2, tf.int32),
+                          lambda: tf.cast(pad_w_total / 2, tf.int32) + 1)
+    pad_w_end = tf.cond(pad_w_cond,
+                        lambda: tf.cast(pad_w_total / 2, tf.int32),
+                        lambda: tf.cast(pad_w_total / 2, tf.int32))
 
     pad_value = tf.cast(pad_value, tf.uint8)
     image = tf.pad(tensor=image, paddings=[[pad_h_begin, pad_h_end],[pad_w_begin, pad_w_end],[0,0]],
                    mode='CONSTANT', name=None, constant_values=pad_value)
 
     return image
+
 
 def distort_bounding_box(input_bbox, random_shift):
     '''
@@ -232,6 +234,27 @@ def distort_bounding_box(input_bbox, random_shift):
 
     return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand]
 
+def extend_bbox_w(templar_bbox, extend_val_left, extend_val_right):
+    '''
+    :param templar_bbox: list [xmin, ymin, xmax, ymax], int
+    :param extend_val_left:
+    :param extend_val_right:
+    :return:
+    '''
+
+    # ymin, ymax stay the same
+    return [templar_bbox[0]-extend_val_left, templar_bbox[1], templar_bbox[2]+extend_val_right, templar_bbox[3]]
+
+def extend_bbox_h(templar_bbox, extend_val_left, extend_val_right):
+    '''
+    :param templar_bbox: list [xmin, ymin, xmax, ymax], int
+    :param extend_val_left:
+    :param extend_val_right:
+    :return:
+    '''
+
+    # xmin, xmax stay the same
+    return [templar_bbox[0], templar_bbox[1]-extend_val_left, templar_bbox[2], templar_bbox[3]+extend_val_right]
 
 def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, num_channels, is_training=True):
   """Preprocesses the give templar/search image buffers and the corresponding bbox.
@@ -251,6 +274,25 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
         score_weight: [256, 256, 1]
   """
 
+  '''
+  * Get tight bbox, randomly shift +-8 pixels
+  * Pad image to [1500, 1500] with mean RGB values
+  * Crop to 256x256:
+      * get tight bbox [w, h]
+      * compute context margin p = (w+h)/4
+      * extend bbox to [w+2p, h+2p], and get min(w+2p, h+2p)
+      * extend bbox to [D, D] by adding the shorter side with max(w+2p, h+2p) - min(w+2p, h+2p)
+      * crop [D, D] and rescale to [128, 128], get the rescale factor [s]
+      * pad boundaries to [256,256] with ImageNet mean RGB values
+
+
+  *********************************** Search image ****************************************
+  * Get tight bbox of the corresponding object in templar image
+  * Randomly rescale in range(s*0.8, s*1.2), and update bbox position; [s] is computed during pre-process templar image
+  * Pad image to [2500, 2500] with mean RGB values
+  * Set bbox as the center and crop the image to [256, 256] so that search target is centered in the image
+  '''
+
   # decode image buffers
   templar_img = tf.image.decode_jpeg(templar_buffer, channels=num_channels) # uint8
   search_img = tf.image.decode_jpeg(search_buffer, channels=num_channels) # uint8
@@ -264,38 +306,146 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   mean_rgb = tf.reduce_mean(templar_img) # tf.uint8
   templar_img = image_pad(image=templar_img, pad_value=mean_rgb, out_size=2500)
   # get context margin and compute new bbox
-  p = int((bbox_h + bbox_w) / 4)
+  p = tf.cast((bbox_h + bbox_w) / 4, tf.int32)
   argmin_dim = tf.math.argmin([bbox_w, bbox_h], axis=0) # 0: shorter in width, 1: shorter in height
-  # TODO, check even/odd
-  extend_val = tf.math.abs(bbox_w-bbox_h) / 2
+  extend_w_cond = tf.equal(argmin_dim, 0) # true if extend in width dim, otherwise extend in height dim
+  extend_side_cond = tf.equal(tf.math.abs(bbox_w-bbox_h) % 2, 0) # if true, extend evenly on both side
+  extend_val_left = tf.cond(extend_side_cond,
+                            lambda: tf.cast(tf.math.abs(bbox_w-bbox_h) / 2, tf.int32),
+                            lambda: tf.cast(tf.math.abs(bbox_w - bbox_h) / 2, tf.int32) + 1,)
+  extend_val_right = tf.cast(tf.math.abs(bbox_w-bbox_h) / 2, tf.int32)
+  # get a rect bbox by extending the shorter side
+  templar_bbox_new = tf.cond(extend_w_cond, lambda: extend_bbox_w(templar_bbox, extend_val_left, extend_val_right),
+                             lambda: extend_bbox_h(templar_bbox, extend_val_left, extend_val_right))
+  # add the context margin on all sides
+  templar_bbox_new = [templar_bbox_new[0]-p, templar_bbox_new[1]-p, templar_bbox_new[2]+p, templar_bbox_new[3]+p]
+  # crop the image
+  croped_templar = tf.image.crop_to_bounding_box(image=templar_img, offset_height=templar_bbox_new[1],
+                                                 offset_width=templar_bbox_new[0],
+                                                 target_height=templar_bbox_new[3]-templar_bbox_new[1],
+                                                 target_width=templar_bbox_new[2]-templar_bbox_new[0])
+  with tf.control_dependencies(tf.debugging.assert_equal(templar_bbox_new[3] - templar_bbox_new[1],
+                                                         templar_bbox_new[2] - templar_bbox_new[0])):
+    # rescale to [128, 128], get the scale factor
+    scale_s = 128.0 / tf.cast(templar_bbox_new[3] - templar_bbox_new[1], tf.float32)
+    croped_templar = tf.image.resize_bilinear(images=tf.expand_dims(croped_templar, axis=0),
+                                              size=[128, 128])
+    croped_templar = tf.squeeze(croped_templar) # [h, w, 3]
+  # pad boundary to [256, 256]
+  templar_final = image_pad(image=croped_templar, pad_value=mean_rgb, out_size=256)
+  # check size
+  with tf.control_dependencies([tf.debugging.assert_equal(templar_final.get_shape()[0], 256),
+                                tf.debugging.assert_equal(templar_final.get_shape()[1], 256),
+                                tf.debugging.assert_equal(templar_final.get_shape()[2], 3)]):
+      templar_final = tf.identity(templar_final)
+
+  ######################################## Process Search image #############################################
+  # Get rgb mean
+  mean_rgb = tf.reduce_mean(search_img)  # tf.uint8
+  # Get random scale factor
+  rescale_factor = scale_s * float(np.random.randint(low=8, high=13, size=None)) / 10.0
+  # Get rescaled bbox position, and the image
+  search_bbox = tf.cast(search_bbox * rescale_factor, tf.int32)
+  new_height = tf.cast(tf.cast(search_img.get_shape()[0], tf.float32) * scale_s, tf.int32)
+  new_width = tf.cast(tf.cast(search_img.get_shape()[1], tf.float32) * scale_s, tf.int32)
+  search_img = tf.image.resize_bilinear(images=tf.expand_dims(search_img, axis=0),
+                                            size=[new_height, new_width])
+  # pad to [2500, 2500]
+  search_img = image_pad(image=search_img, pad_value=mean_rgb, out_size=2500)
+  # Crop image around new bbox to [256, 256]
+  x_center = tf.cast((search_bbox[2] - search_bbox[0]) / 2, tf.int32)
+  y_center = tf.cast((search_bbox[3] - search_bbox[1]) / 2, tf.int32)
+  search_final = tf.image.crop_to_bounding_box(image=search_img, offset_height=y_center - 128,
+                                             offset_width=x_center - 128,
+                                             target_height=256, target_width=256)
+  # check size
+  with tf.control_dependencies([tf.debugging.assert_equal(search_final.get_shape()[0], 256),
+                                tf.debugging.assert_equal(search_final.get_shape()[1], 256),
+                                tf.debugging.assert_equal(search_final.get_shape()[2], 3)]):
+      search_final = tf.identity(search_final)
+
+  ######################################## Process Score Map GT #############################################
+  #[256, 256, 1], [256, 256, 1]
+  score = tf.ones(shape=[16,16,1], dtype=tf.uint8)
+  score = image_pad(image=score, pad_value=0, out_size=256)
+  num_total = 256 * 256
+  num_positive = 16 * 16
+  num_negative = num_total - num_positive
+  weight_positive = float(num_negative) / float(num_total)
+  weight_negative = float(num_positive) / float(num_total)
+  mat_positive = score * weight_positive # float
+  mat_negative = (1 - score) * weight_negative # float
+  score_weight = mat_positive + mat_negative
+  # check size
+  with tf.control_dependencies([tf.debugging.assert_equal(score.get_shape()[0], 256),
+                                tf.debugging.assert_equal(score.get_shape()[1], 256),
+                                tf.debugging.assert_equal(score.get_shape()[2], 1),
+                                tf.debugging.assert_equal(score_weight.get_shape()[0], 256),
+                                tf.debugging.assert_equal(score_weight.get_shape()[1], 256),
+                                tf.debugging.assert_equal(score_weight.get_shape()[2], 1)]):
+      score = tf.identity(score)
+      score_weight = tf.identity(score_weight)
+
+  ################################### Randomly flip templar/search images ####################################
+  stacked = tf.stack(values=[templar_final, search_final], axis=0) # [2, 256, 256, 3]
+  tf.image.random_flip_left_right(image=stacked)
+  templar_final = tf.squeeze(stacked[0:1, :,:,:])
+  search_final = tf.squeeze(stacked[1:2, :,:,:])
+
+  templar_final = mean_image_subtraction(templar_final, _CHANNEL_MEANS, num_channels)
+  search_final = mean_image_subtraction(search_final, _CHANNEL_MEANS, num_channels)
+
+  return templar_final, search_final, score, score_weight
 
 
+########################################################################
+# Build TF Dataset of ImageNet15-VID train pipeline
+########################################################################
+def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wangyu/imagenet15_vid/tfrecord_train',
+                  is_training=True, data_format='channels_first'):
+    """
+    Note that though each gpu process a unique part of the dataset, the data pipeline is built
+    only on CPU. Each GPU worker will have its own dataset iterator
+
+    :param num_gpu: total number of gpus, each gpu will be assigned to a unique part of the dataset
+    :param batch_size: batch of images processed on each gpu
+    :param train_record_dir: where the tfrecord files are stored
+    :param is_training: whether training or not
+    :param data_format: must be 'channels_first' when using gpu
+    :return: a list of sub-dataset for each different gpu
+    """
 
 
-  score = 0
-  score_weight = 0
-  # image.set_shape([_DEFAULT_SIZE, _DEFAULT_SIZE, num_channels])
+    file_list = get_filenames(is_training, train_record_dir)
+    print('Got {} tfrecords.'.format(len(file_list)))
+    subset = []
 
-  templar_img = mean_image_subtraction(templar_img, _CHANNEL_MEANS, num_channels)
-  search_img = mean_image_subtraction(search_img, _CHANNEL_MEANS, num_channels)
+    # create dataset, reading all train tfrecord files, default number of files = _NUM_SHARDS
+    dataset = tf.data.Dataset.list_files(file_pattern=file_list, shuffle=False)
+    # shuffle file orders
+    dataset = dataset.shuffle(buffer_size=_NUM_SHARDS)
+    # seperate a unique part of the dataset according to number of gpus
+    for gpu_id in range(num_gpu):
+        subset.append(dataset.shard(num_shards=num_gpu, index=gpu_id))
+    # parse records for each gpu
+    for gpu_id in range(num_gpu):
+        # process 4 files concurrently and interleave blocks of 10 records from each file
+        subset[gpu_id] = subset[gpu_id].interleave(lambda filename: tf.data.TFRecordDataset(filenames=filename,
+                                                                                            compression_type='GZIP',
+                                                                                            num_parallel_reads=4),
+                                                   cycle_length=10, block_length=50, num_parallel_calls=4)
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*num_gpu*2) # prefetch
+        subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
+        if data_format == 'channels_first':
+            subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
+        else:
+            raise ValueError('Data format is not channels_first when building dataset pipeline!')
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=10000)
+        subset[gpu_id] = subset[gpu_id].repeat()
+        subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
+        # prefetch and buffer internally, to prevent starvation of GPUs
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=num_gpu*2)
 
-  return templar_img, search_img, score, score_weight
+    print('Dataset pipeline built for {} GPUs.'.format(num_gpu))
 
-'''
-* Get tight bbox, randomly shift +-8 pixels
-* Pad image to [1500, 1500] with mean RGB values
-* Crop to 256x256:
-    * get tight bbox [w, h]
-    * compute context margin p = (w+h)/4
-    * extend bbox to [w+2p, h+2p], and get min(w+2p, h+2p)
-    * extend bbox to [D, D] by adding the shorter side with max(w+2p, h+2p) - min(w+2p, h+2p)
-    * crop [D, D] and rescale to [128, 128], get the rescale factor [s]
-    * pad boundaries to [256,256] with ImageNet mean RGB values
-    
-    
-*********************************** Search image ****************************************
-* Get tight bbox of the corresponding object in templar image
-* Randomly rescale in range(s*0.8, s*1.2), and update bbox position; [s] is computed during pre-process templar image
-* Pad image to [1500, 1500] with mean RGB values
-* Set bbox as the center and crop the image to [256, 256] so that search target is centered in the image
-'''
+    return subset
