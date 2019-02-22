@@ -21,7 +21,7 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
     * Accuracy: 49.92 (10ep); training suspended after 80k iters for unknown reason
 * **Training** 4xTitanXP (12GB), batch=256, SGD_momentum(base_lr=0.256, scaled_lr=0.128, momentum=0.9), BN_mom=0.95
     * Accuracy: 47.87% (10ep), 52.45% (20ep), 53.78% (30ep), 69.086 (40ep), 68.87% (50ep), 69.034(60ep), 
-    75.404 (70ep), 75.43 (80ep)
+    75.404 (70ep), 75.43 (80ep), 75.956 (90ep)
 * **TODO** Use Batch stats synchronization via Nvidia NCCL
 
 
