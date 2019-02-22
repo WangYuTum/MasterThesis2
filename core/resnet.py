@@ -73,7 +73,9 @@ class ResNet():
 
     def build_model(self, inputs, training):
         '''
-        :param inputs: input tensor
+        :param inputs:
+            templar images: [0:batch/2, c, h, w]
+            search images: [batch/2:batch, c, h, w]
         :training: boolean
         :return: output of network
         '''
@@ -178,37 +180,68 @@ class ResNet():
 
             ################################## mask-propagte branch #################################
             # TODO: take the templar's mask, provided from data pipeline
-            templar_masks = 0 # [batch/2, 1, 32, 32]
-            search_crops = [] # [batch/2, 16, 2]: batch/2 pairs, each pair has 16 crops, each crop has [h,w]
+            #templar_masks = 0 # [batch/2, 1, 32, 32]
+            #search_crops = [] # [batch/2, 16, 2]: batch/2 pairs, each pair has 16 crops, each crop has [h,w]
             # crop feature maps from search feature maps, coordinates provided from data pipeline
             # reuse the var above: templar_feat [32, 32, 256, batch/2], search_feat [batch/2, 256, 64, 64]
-            concatenated_features = []
-            for batch_i in range(int(self.batch_/2)):
-                batch_i_search_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
-                batch_i_templar_feat = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
-                batch_i_templar_mask = templar_masks[batch_i:batch_i+1, :, :, :] # [1, 1, 32, 32]
-                batch_i_fuses = []
-                for crop_i in range(16):
-                    crop_i_coord = search_crops[batch_i, crop_i, :] # [h, w]
-                    cropped_feat = batch_i_search_feat[:, :, crop_i_coord[0]:crop_i_coord[0]+32, crop_i_coord[1]:crop_i_coord[1]+32] # [1, 256, 32, 32]
+            #concatenated_features = []
+            #for batch_i in range(int(self.batch_/2)):
+            #    batch_i_search_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
+            #    batch_i_templar_feat = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
+            #    batch_i_templar_mask = templar_masks[batch_i:batch_i+1, :, :, :] # [1, 1, 32, 32]
+            #    batch_i_fuses = []
+            #    for crop_i in range(16):
+            #        crop_i_coord = search_crops[batch_i, crop_i, :] # [h, w]
+            #        cropped_feat = batch_i_search_feat[:, :, crop_i_coord[0]:crop_i_coord[0]+32, crop_i_coord[1]:crop_i_coord[1]+32] # [1, 256, 32, 32]
                     # stack them
-                    stack_crop_i = tf.concat(axis=0, values=[tf.transpose(batch_i_templar_feat, [3, 2, 0, 1]),
-                                                             batch_i_templar_mask, cropped_feat]) # [1, 513, 32, 32]
-                    batch_i_fuses.append(stack_crop_i)
+            #        stack_crop_i = tf.concat(axis=0, values=[tf.transpose(batch_i_templar_feat, [3, 2, 0, 1]),
+            #                                                 batch_i_templar_mask, cropped_feat]) # [1, 513, 32, 32]
+            #        batch_i_fuses.append(stack_crop_i)
                 # stack for this batch_i
-                batch_i_fuses = tf.concat(axis=0, values=batch_i_fuses) # [16, 513, 32, 32]
+            #    batch_i_fuses = tf.concat(axis=0, values=batch_i_fuses) # [16, 513, 32, 32]
                 # save for this batch_i
-                concatenated_features.append(batch_i_fuses)
+            #    concatenated_features.append(batch_i_fuses)
             # stack for all batches
-            concatenated_features = tf.concat(axis=0, values=concatenated_features) # [16*batch/2, 513, 32, 32]
+            #concatenated_features = tf.concat(axis=0, values=concatenated_features) # [16*batch/2, 513, 32, 32]
 
             # feed to mask propagation convs
-            with tf.variable_scope('mask_prop'):
-                mask_out = nn.mask_prop_layer(inputs=concatenated_features, training=training, l2_decay=self.l2_weight_,
-                                              momentum=self.bn_momentum_, epsilon=self.bn_epsilon_, data_format=self.data_format_)
+            #with tf.variable_scope('mask_prop'):
+            #    mask_out = nn.mask_prop_layer(inputs=concatenated_features, training=training, l2_decay=self.l2_weight_,
+            #                                  momentum=self.bn_momentum_, epsilon=self.bn_epsilon_, data_format=self.data_format_)
                 # mask_out has shape [16 * batch/2, 2, 32, 32]
 
-        return final_scores, mask_out
+        return final_scores
+        #return final_scores, mask_out
+
+    def loss_score(self, score_map, score_gt, score_weight, scope):
+        '''
+        :param score_map: [batch/2, 1, 256, 256], pred score map for each pair
+        :param score_gt: [batch/2, 1, 256, 256], gt score map for each pair
+        :param score_weight: [batch/2, 1, 256, 256], balanced weight for score map
+        :param scope: context of the current tower, VERY important in multi-GPU setup
+        :return: score_loss + l2_loss
+        '''
+        print('Building loss...')
+
+        #########################################################
+        # l2_loss, already multiplied by decay when created graph.
+        #########################################################
+        # Extract the l2 loss for current tower, and add to summary
+        losses = tf.get_collection('l2_losses', scope=scope)
+        l2_total = tf.add_n(losses)
+        tf.summary.scalar(name='%s_l2' % scope, tensor=l2_total)
+
+        ########################## Loss for score map ##############################
+        # use balanced cross-entropy on score maps
+        score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
+        tf.summary.scalar(name='%s_score' % scope, tensor=score_loss)
+
+        ########################## total loss ##############################
+        total_loss = l2_total + score_loss
+        tf.summary.scalar(name='%s_total_loss' % scope, tensor=total_loss)
+
+        return total_loss
+
 
     def loss(self, score_map, score_gt, score_weight, lambda_score, mask_map, mask_gt, mask_weight, lambda_mask, scope):
         '''

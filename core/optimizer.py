@@ -15,12 +15,13 @@ def lr_scheduler(base_lr, batches_per_epoch, batch_size, global_step, bnorm):
     :param global_step:
     :return:
     '''
-    init_lr = base_lr * batch_size / bnorm # if actuall batch_size < 512, the lr is reduced
-    boundary_epochs = [30, 60, 80, 90]
-    decay_rates = [1, 0.1, 0.01, 0.001, 1e-4]
+    init_lr = base_lr * batch_size / bnorm # if actuall batch_size < 32, the lr is reduced
+    warmup_lr = init_lr / 5 # =0.002 if init_lr=0.01
+    boundary_epochs = [1, 2, 3, 4, 5, 25, 45, 65]
+    decay_rates = [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 0.5, 0.25, 0.05]
 
     boundaries = [int(batches_per_epoch * epoch) for epoch in boundary_epochs] # units in iterations
-    vals = [init_lr * decay for decay in decay_rates]
+    vals = [warmup_lr * decay for decay in decay_rates]
     lr = tf.train.piecewise_constant(global_step, boundaries, vals)
 
     return lr
