@@ -13,6 +13,9 @@ data/
 # .idea
 .idea/
 
+# slurm output
+slurm-*.out
+
 # User-specific stuff:
 .idea/**/workspace.xml
 .idea/**/tasks.xml
