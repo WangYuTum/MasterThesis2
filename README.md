@@ -17,7 +17,7 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 * **Trained** P6000 (24GB), batch=128, adam(lr=0.05, ep=0.01), BN_mom=0.95
     * Accuracy: 28.58% (10ep)
 * **Training** P6000 (24GB), batch=128, SGD_Momentum(lr=0.064, momentum=0.9), BN_mom=0.95
-    * Accuracy: 47.59% (10ep), 52.96% (20ep), 55.65% (30ep), 70.35% (40ep), 70.71% (50ep)
+    * Accuracy: 47.59% (20ep), 52.96% (30ep), 55.65% (40ep), 70.35% (50ep), 70.71% (60ep)
 
 
 ## Dataset
