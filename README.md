@@ -40,8 +40,8 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
     * **(Done)** Verify validation on multiple GPUs implementation
 * **(Training)** Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
     * Verify validation on single GPU
-* **(Training)** Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
-    * Verify validation on multiple GPUs
+* **(DONE)** Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
+    * Verify validation on multiple GPUs: 75.96% (100ep, SGD)
 * **(TODO)** Train FPN_CC_track on ImageNet15-VID from pre-trained ImageNet12 on multi-GPU
     * Verify accuray on validation/test sets
 
