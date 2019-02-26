@@ -23,8 +23,8 @@ _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
 _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-_NUM_TRAIN = 0 # TODO
-_NUM_SHARDS = 0 # TODO
+_NUM_TRAIN = 4000000 # number of training pairs, equal to number of sampled pairs
+_NUM_SHARDS = 4000 # number of tfrecords in total, each tfrecord has 1000 pairs
 
 """
 The tfrecord files must provide the following contents, each example have:
@@ -42,7 +42,7 @@ Pre-processing of training pairs for bbox tracking:
     * extend bbox to [w+2p, h+2p], and get min(w+2p, h+2p)
     * extend bbox to [D, D] by adding the shorter side with max(w+2p, h+2p) - min(w+2p, h+2p)
     * crop [D, D] and rescale to [128, 128], get the rescale factor [s]
-    * pad boundaries to [256,256] with ImageNet mean RGB values
+    * pad boundaries to [256,256] with mean RGB values
 
 *********************************** Search image ****************************************
 * Get tight bbox of the corresponding object in templar image
@@ -130,24 +130,31 @@ def parse_example_proto(raw_record):
     feature_map = {
         'pair/height': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'pair/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
-        'search/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
+        'img0/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img0/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img0/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img0/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img1/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img1/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img1/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img1/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'img0/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
+        'img1/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
     }
     features = tf.parse_single_example(raw_record, feature_map)
-    templar_bbox = [features['templar/bbox/xmin'], features['templar/bbox/ymin'],
-                    features['templar/bbox/xmax'], features['templar/bbox/ymax']]
-    search_bbox = [features['search/bbox/xmin'], features['search/bbox/ymin'],
-                    features['search/bbox/xmax'], features['search/bbox/ymax']]
+    bbox0 = [features['img0/bbox/xmin'], features['img0/bbox/ymin'],
+             features['img0/bbox/xmax'], features['img0/bbox/ymax']]
+    bbox1 = [features['img1/bbox/xmin'], features['img1/bbox/ymin'],
+             features['img1/bbox/xmax'], features['img1/bbox/ymax']]
+    img0_buffer = features['img0/encoded']
+    img1_buffer = features['img1/encoded']
 
-    return features['templar/encoded'], features['search/encoded'], templar_bbox, search_bbox
+    # randomly select one image/bbox as templar
+    def true_fn(): return img0_buffer, bbox0, img1_buffer, bbox1
+    def false_fn(): return img1_buffer, bbox1, img0_buffer, bbox0
+    templar_img, templar_box, search_img, search_box = tf.cond(tf.random.uniform([]) < 0.5, true_fn(), false_fn())
+
+    return templar_img, search_img, templar_box, search_box
 
 def mean_image_subtraction(image, means, num_channels):
   """Subtracts the given means from each image channel.
@@ -267,15 +274,16 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   """
 
   '''
+  *********************************** Templar image ****************************************
   * Get tight bbox, randomly shift +-8 pixels
-  * Pad image to [1500, 1500] with mean RGB values
+  * Pad image to [2500, 2500] with mean RGB values
   * Crop to 256x256:
       * get tight bbox [w, h]
       * compute context margin p = (w+h)/4
       * extend bbox to [w+2p, h+2p], and get min(w+2p, h+2p)
       * extend bbox to [D, D] by adding the shorter side with max(w+2p, h+2p) - min(w+2p, h+2p)
       * crop [D, D] and rescale to [128, 128], get the rescale factor [s]
-      * pad boundaries to [256,256] with ImageNet mean RGB values
+      * pad boundaries to [256,256] with mean RGB values
 
 
   *********************************** Search image ****************************************
@@ -304,7 +312,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   extend_side_cond = tf.equal(tf.math.abs(bbox_w-bbox_h) % 2, 0) # if true, extend evenly on both side
   extend_val_left = tf.cond(extend_side_cond,
                             lambda: tf.cast(tf.math.abs(bbox_w-bbox_h) / 2, tf.int32),
-                            lambda: tf.cast(tf.math.abs(bbox_w - bbox_h) / 2, tf.int32) + 1,)
+                            lambda: tf.cast(tf.math.abs(bbox_w - bbox_h) / 2, tf.int32) + 1)
   extend_val_right = tf.cast(tf.math.abs(bbox_w-bbox_h) / 2, tf.int32)
   # get a rect bbox by extending the shorter side
   templar_bbox_new = tf.cond(extend_w_cond, lambda: extend_bbox_w(templar_bbox, extend_val_left, extend_val_right),
@@ -342,6 +350,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   new_width = tf.cast(tf.cast(search_img.get_shape()[1], tf.float32) * scale_s, tf.int32)
   search_img = tf.image.resize_bilinear(images=tf.expand_dims(search_img, axis=0),
                                             size=[new_height, new_width])
+  search_img = tf.squeeze(search_img)  # [h, w, 3]
   # pad to [2500, 2500]
   search_img = image_pad(image=search_img, pad_value=mean_rgb, out_size=2500)
   # Crop image around new bbox to [256, 256]
@@ -380,7 +389,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
 
   ################################### Randomly flip templar/search images ####################################
   stacked = tf.stack(values=[templar_final, search_final], axis=0) # [2, 256, 256, 3]
-  tf.image.random_flip_left_right(image=stacked)
+  stacked = tf.image.random_flip_left_right(image=stacked)
   templar_final = tf.squeeze(stacked[0:1, :,:,:])
   search_final = tf.squeeze(stacked[1:2, :,:,:])
 
