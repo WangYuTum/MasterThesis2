@@ -39,8 +39,8 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
         * Official accuracy: 76.47% (fp32)
         * Test accuracy: 76.47% (fp32)
     * **(Done)** Verify validation on multiple GPUs implementation
-* **(Training)** Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
-    * Verify validation on single GPU
+* **(DONE)** Train ResNet-50-v2 on ImageNet2012 from scratch on single GPU
+    * Verify validation on single GPU: 70.71% (70ep)
 * **(DONE)** Train ResNet-50-v2 on ImageNet2012 from scratch on multiple GPUs
     * Verify validation on multiple GPUs: 75.96% (100ep, SGD)
 * **(TODO)** Train FPN_CC_track on ImageNet15-VID from pre-trained ImageNet12 on multi-GPU
