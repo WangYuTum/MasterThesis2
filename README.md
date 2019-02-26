@@ -45,6 +45,8 @@ are shared across GPUs (but not graphs/operations which are specified via tf.nam
     * Verify validation on multiple GPUs: 75.96% (100ep, SGD)
 * **(TODO)** Train FPN_CC_track on ImageNet15-VID from pre-trained ImageNet12 on multi-GPU
     * Verify accuray on validation/test sets
+* **(TODO)** Train FPN_CC_track on ImageNet15-VID and Youtube-BB from pre-trained ImageNet12 on multi-GPU
+    * Verify accuray on validation/test sets
 
 
 
