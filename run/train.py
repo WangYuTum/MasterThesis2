@@ -15,11 +15,12 @@ from core import resnet
 from data_util import imgnet_train_pipeline
 import time
 
-_NUM_TRAIN = 0 # TODO: number of training pairs
+_NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
 _NUM_GPU = 4
-_NUM_SHARDS = 1024 # TODO: number of tfrecords
+_NUM_SHARDS = 4000 # number of tfrecords
 _BATCH_SIZE = 32 # how many pairs per iter, p6000_4: 64, titanx_4: 32
+_PAIRS_PER_EP = 50000 * _BATCH_SIZE # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper (batch=32)
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 75
 _WARMUP_EP = 5 # number of epochs for warm up
@@ -37,16 +38,17 @@ else:
 
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
-_DATA_SOURCE = '/storage/slurm/wangyu/imagenet/tfrecord_train' # TODO
-_SAVE_CHECKPOINT = '/storage/remote/atbeetz21/wangyu/imagenet/resnet_imgnet_4gpu_scratch/imgnet_4gpu_scratch.ckpt' # TODO
-_SAVE_SUM = '/storage/remote/atbeetz21/wangyu/imagenet/tfboard/imgnet_train_4gpu' # TODO
+_DATA_SOURCE = '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd'
 _SAVE_CHECKPOINT_EP = 2
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
 # determine number of iterations
-iters_per_epoch = int(_NUM_TRAIN / _BATCH_SIZE) + 1
+# iters_per_epoch = int(_NUM_TRAIN / _BATCH_SIZE) + 1
+iters_per_epoch = int(_PAIRS_PER_EP / _BATCH_SIZE) # 50000 iters/ep for batch=32
 iters_warmup= _WARMUP_EP * iters_per_epoch
 iters_total = (_EPOCHS + _WARMUP_EP) * iters_per_epoch
 
@@ -104,11 +106,14 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     in_img_batch = tf.concat(values=[next_element_gpus[gpu_id]['templar'],
                                                      next_element_gpus[gpu_id]['search']],
                                              axis=0)
-                    score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2, 1, 33, 33]
+                    # TODO: in build model, output [64,64] score map
+                    score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2=pairs, 1, 64, 64]
                     # resize to [256, 256] for better localisation
                     score_logits = tf.image.resize_bicubic(images=tf.transpose(score_logits, [0,2,3,1]),
-                                                           size=[256, 256]) # [batch/2, 256, 256, 1]
-                    score_logits = tf.transpose(score_logits, [0, 3, 1, 2]) # [batch/2, 1, 256, 256]
+                                                           size=[256, 256]) # [batch/2=pairs, 256, 256, 1]
+                    score_logits = tf.transpose(score_logits, [0, 3, 1, 2]) # [batch/2=pairs, 1, 256, 256]
+                    # TODO: here build image summary of templar/search/score/logits
+                    # TODO: do not compute loss around the boundaries, might have to adjust score_weight
                     loss = model.loss_score(score_map=score_logits, score_gt=next_element_gpus[gpu_id]['score'],
                                             score_weight=next_element_gpus[gpu_id]['score_weight'], scope=scope)
                     tower_loss.append(tf.expand_dims(loss, 0))
@@ -137,7 +142,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     update_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # saver, summary, init
-    saver_imgnet = tf.train.Saver()
+    saver_imgnet = tf.train.Saver() # only restore backbone weights
     saver = tf.train.Saver(tf.global_variables())
     summary_op = tf.summary.merge_all()
     init = tf.global_variables_initializer()
