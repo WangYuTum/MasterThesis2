@@ -128,20 +128,16 @@ def parse_example_proto(raw_record):
     '''
 
     feature_map = {
-        'templar/height': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'pair/height': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
+        'pair/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'templar/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'templar/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'templar/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'templar/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'templar/filename': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
-        'search/height': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/width': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/bbox/xmin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/bbox/ymin': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/bbox/xmax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
         'search/bbox/ymax': tf.FixedLenFeature([], dtype=tf.int64, default_value=-1),
-        'search/filename': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'templar/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
         'search/encoded': tf.FixedLenFeature([], dtype=tf.string, default_value=''),
     }
