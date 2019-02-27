@@ -15,7 +15,7 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
 * Extend the above ResNet to FPN \[[2](https://arxiv.org/abs/1612.03144)\], additional layers are initialised using tf.glorot_uniform_initializer().
 * Extend the above FPN by adding additional cross-correlation layers (Multi-GPU).
 * (TODO) Train extended FPN on bounding box tracking using CC operation (Multi-GPU).
-* (Optional) Train extended FPN on bounding box regression using RPN (Multi-GPU).
+* (TODO) Train extended FPN on bounding box regression using RPN (Multi-GPU).
 * (TODO) Train the above network on bbox tracking & mask propagation simultaneously (Multi-GPU).
     * Inference on DAVIS-2016 by tracking and propagating object parts' masks
 
