@@ -106,14 +106,16 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     in_img_batch = tf.concat(values=[next_element_gpus[gpu_id]['templar'],
                                                      next_element_gpus[gpu_id]['search']],
                                              axis=0)
-                    # TODO: in build model, output [64,64] score map
-                    score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2=pairs, 1, 64, 64]
-                    # resize to [256, 256] for better localisation
-                    score_logits = tf.image.resize_bicubic(images=tf.transpose(score_logits, [0,2,3,1]),
-                                                           size=[256, 256]) # [batch/2=pairs, 256, 256, 1]
-                    score_logits = tf.transpose(score_logits, [0, 3, 1, 2]) # [batch/2=pairs, 1, 256, 256]
-                    # TODO: here build image summary of templar/search/score/logits
-                    # TODO: do not compute loss around the boundaries, might have to adjust score_weight
+                    score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2=pairs, 1, 33, 33]
+                    # here build image summary of templar/search/score/logits
+                    tf.summary.image(name='%s_templar' % scope,
+                                     tensor=tf.transpose(next_element_gpus[gpu_id]['templar'], [0,2,3,1]))
+                    tf.summary.image(name='%s_search' % scope,
+                                     tensor=tf.transpose(next_element_gpus[gpu_id]['search'], [0,2,3,1]))
+                    tf.summary.image(name='%s_score' % scope,
+                                     tensor=tf.transpose(next_element_gpus[gpu_id]['score'], [0,2,3,1]))
+                    tf.summary.image(name='%s_logits' % scope,
+                                     tensor=tf.transpose(score_logits, [0,2,3,1]))
                     loss = model.loss_score(score_map=score_logits, score_gt=next_element_gpus[gpu_id]['score'],
                                             score_weight=next_element_gpus[gpu_id]['score_weight'], scope=scope)
                     tower_loss.append(tf.expand_dims(loss, 0))

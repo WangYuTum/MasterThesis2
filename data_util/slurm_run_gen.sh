@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus=16
 #SBATCH --mem=64GB
-#SBATCH --time=12:00:00
+#SBATCH --time=36:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL,REQUEUE,TIME_LIMIT,TIME_LIMIT_90
 #SBATCH --output=/usr/stud/wangyu/PycharmProjects/slurm_log/slurm-%j.out
 export PYTHONHOME=/usr/stud/wangyu/venv

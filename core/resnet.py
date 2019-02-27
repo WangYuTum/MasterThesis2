@@ -215,9 +215,9 @@ class ResNet():
 
     def loss_score(self, score_map, score_gt, score_weight, scope):
         '''
-        :param score_map: [batch/2, 1, 256, 256], pred score map for each pair
-        :param score_gt: [batch/2, 1, 256, 256], gt score map for each pair
-        :param score_weight: [batch/2, 1, 256, 256], balanced weight for score map
+        :param score_map: [batch/2, 1, 33, 33], pred score map for each pair
+        :param score_gt: [batch/2, 1, 33, 33], gt score map for each pair
+        :param score_weight: [batch/2, 1, 33, 33], balanced weight for score map
         :param scope: context of the current tower, VERY important in multi-GPU setup
         :return: score_loss + l2_loss
         '''

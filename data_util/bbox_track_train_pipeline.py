@@ -366,11 +366,12 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
       search_final = tf.identity(search_final)
 
   ######################################## Process Score Map GT #############################################
-  #[256, 256, 1], [256, 256, 1]
-  score = tf.ones(shape=[16,16,1], dtype=tf.uint8)
-  score = image_pad(image=score, pad_value=0, out_size=256)
-  num_total = 256 * 256
-  num_positive = 16 * 16
+  # [33, 33, 1], [33, 33, 1]
+  # consider stride x (center - offset) <= 8 as positives, the central 5x5 are ones, the rest are zeros
+  score = tf.ones(shape=[5,5,1], dtype=tf.uint8)
+  score = image_pad(image=score, pad_value=0, out_size=33)
+  num_total = 33 * 33
+  num_positive = 5 * 5
   num_negative = num_total - num_positive
   weight_positive = float(num_negative) / float(num_total)
   weight_negative = float(num_positive) / float(num_total)
@@ -378,11 +379,11 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
   mat_negative = (1 - score) * weight_negative # float
   score_weight = mat_positive + mat_negative
   # check size
-  with tf.control_dependencies([tf.debugging.assert_equal(score.get_shape()[0], 256),
-                                tf.debugging.assert_equal(score.get_shape()[1], 256),
+  with tf.control_dependencies([tf.debugging.assert_equal(score.get_shape()[0], 33),
+                                tf.debugging.assert_equal(score.get_shape()[1], 33),
                                 tf.debugging.assert_equal(score.get_shape()[2], 1),
-                                tf.debugging.assert_equal(score_weight.get_shape()[0], 256),
-                                tf.debugging.assert_equal(score_weight.get_shape()[1], 256),
+                                tf.debugging.assert_equal(score_weight.get_shape()[0], 33),
+                                tf.debugging.assert_equal(score_weight.get_shape()[1], 33),
                                 tf.debugging.assert_equal(score_weight.get_shape()[2], 1)]):
       score = tf.identity(score)
       score_weight = tf.identity(score_weight)
