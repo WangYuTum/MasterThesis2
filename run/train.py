@@ -10,38 +10,40 @@ from __future__ import print_function
 import sys
 import tensorflow as tf
 sys.path.append('..')
+from core.nn import get_resnet50v2_backbone_vars
 from core import optimizer
 from core import resnet
-from data_util import imgnet_train_pipeline
+from data_util import bbox_track_train_pipeline
+from data_util.bbox_helper import draw_bbox_templar
+from data_util.bbox_helper import draw_bbox_search
 import time
 
 _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
 _NUM_GPU = 4
 _NUM_SHARDS = 4000 # number of tfrecords
-_BATCH_SIZE = 32 # how many pairs per iter, p6000_4: 64, titanx_4: 32
+_BATCH_SIZE = 16*4 # how many pairs per iter, p6000_4: 128, titanx_4: 64
 _PAIRS_PER_EP = 50000 * _BATCH_SIZE # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper (batch=32)
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 75
 _WARMUP_EP = 5 # number of epochs for warm up
-_BN_MOMENTUM = 0.95 # can be 0.9 for training on large dataset, default=0.997
+_BN_MOMENTUM = 0.99 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
-_BNORM = 32 # fixed
 
-_OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
+_OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
-    _INIT_LR = 0.01 # can try 0.01 (b=32), 0.02 (b=64), 0.04 (b=128)
+    _INIT_LR = 0.01
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 0.01 # will be scaled to 0.01 (b=32, sgd), 0.02 (b=64, sgd), 0.04 (b=128, sgd)
+    _INIT_LR = 1e-5 # cannot use lr>1e-5
 else:
     _INIT_LR = 0.01
 
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
-_DATA_SOURCE = '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt'
-_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd'
-_SAVE_CHECKPOINT_EP = 2
+_DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
+_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/' #
+_SAVE_CHECKPOINT_EP = 5
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
@@ -57,10 +59,10 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     #######################################################################
     # Prepare data pipeline for multiple GPUs
     #######################################################################
-    datasets = imgnet_train_pipeline.build_dataset(num_gpu=_NUM_GPU,
-                                                   batch_size=_BATCH_PER_GPU, # how many pairs per GPU
-                                                   train_record_dir=_DATA_SOURCE,
-                                                   is_training=_TRAINING, data_format='channels_first')
+    datasets = bbox_track_train_pipeline.build_dataset(num_gpu=_NUM_GPU,
+                                                       batch_size=_BATCH_PER_GPU, # how many pairs per GPU
+                                                       train_record_dir=_DATA_SOURCE,
+                                                       is_training=_TRAINING, data_format='channels_first')
     iterator_gpus = [] # data iterators for different GPUs
     next_element_gpus = [] # element getter for different GPUs
     for gpu_id in range(_NUM_GPU):
@@ -75,7 +77,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         lr = _INIT_LR
     elif _OPTIMIZER == 'momentum':
         opt, lr = optimizer.get_momentum_opt(base_lr=_INIT_LR, batches_per_epoch=iters_per_epoch, global_step=global_step,
-                                             batch_size=_BATCH_SIZE, momentum=_MOMENTUM_OPT, bnorm=_BNORM)
+                                             batch_size=_BATCH_SIZE, momentum=_MOMENTUM_OPT, bnorm=1)
     else:
         opt = tf.train.AdamOptimizer(learning_rate=_INIT_LR, epsilon=_ADAM_EPSILON)
         lr = _INIT_LR
@@ -101,20 +103,24 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     print('Building model on GPU {}'.format(gpu_id))
                     model = resnet.ResNet(model_params)
                     # stack templar and search images
-                    # {'templar': templar_img, 'search': search_img, 'score': score, 'score_weight': score_weight}
                     # inputs all have dim [256, 256]
                     in_img_batch = tf.concat(values=[next_element_gpus[gpu_id]['templar'],
                                                      next_element_gpus[gpu_id]['search']],
                                              axis=0)
                     score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2=pairs, 1, 33, 33]
-                    # here build image summary of templar/search/score/logits
-                    tf.summary.image(name='%s_templar' % scope,
-                                     tensor=tf.transpose(next_element_gpus[gpu_id]['templar'], [0,2,3,1]))
-                    tf.summary.image(name='%s_search' % scope,
-                                     tensor=tf.transpose(next_element_gpus[gpu_id]['search'], [0,2,3,1]))
-                    tf.summary.image(name='%s_score' % scope,
-                                     tensor=tf.transpose(next_element_gpus[gpu_id]['score'], [0,2,3,1]))
-                    tf.summary.image(name='%s_logits' % scope,
+                    ################# image summaries #################
+                    templar_sum = draw_bbox_templar(templars=next_element_gpus[gpu_id]['templar'],
+                                                    bbox_templars=next_element_gpus[gpu_id]['tight_temp_bbox'],
+                                                    batch=_BATCH_PER_GPU)
+                    tf.summary.image(name='templar',tensor=templar_sum)
+                    search_sum = draw_bbox_search(searchs=next_element_gpus[gpu_id]['search'],
+                                                  bbox_searchs=next_element_gpus[gpu_id]['tight_search_bbox'],
+                                                  batch=_BATCH_PER_GPU)
+                    tf.summary.image(name='search',
+                                     tensor=search_sum)
+                    tf.summary.image(name='score',
+                                     tensor=tf.transpose(tf.cast(next_element_gpus[gpu_id]['score'], tf.uint8) * 255, [0,2,3,1]))
+                    tf.summary.image(name='logits',
                                      tensor=tf.transpose(score_logits, [0,2,3,1]))
                     loss = model.loss_score(score_map=score_logits, score_gt=next_element_gpus[gpu_id]['score'],
                                             score_weight=next_element_gpus[gpu_id]['score_weight'], scope=scope)
@@ -144,8 +150,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     update_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # saver, summary, init
-    saver_imgnet = tf.train.Saver() # only restore backbone weights
-    saver = tf.train.Saver(tf.global_variables())
+    saver_imgnet = tf.train.Saver(var_list=get_resnet50v2_backbone_vars()) # only restore backbone weights
+    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50)
     summary_op = tf.summary.merge_all()
     init = tf.global_variables_initializer()
 
@@ -172,13 +178,16 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         print('Number of iterations per epoch: {}'.format(iters_per_epoch))
         print('Batch size: {}'.format(_BATCH_SIZE))
         print('Batch size per GPU: {}'.format(_BATCH_PER_GPU))
-        print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr))
+        print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr.eval()))
         time.sleep(10)
 
         # start training
         for ep_i in range(_EPOCHS + _WARMUP_EP): # in total 80 ep
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
+                # print('iter: {}'.format(iter_i))
+                # summary_out = sess.run(summary_op)
+                # sum_writer.add_summary(summary_out, iter_i)
                 _, loss_v = sess.run([update_op, avg_loss])
 
                 # print loss

@@ -388,53 +388,53 @@ def get_resnet50v2_backbone_vars():
 
     # the init 7x7 conv
     with tf.variable_scope('backbone', reuse=True):
-        backbone_dict['backbone/kernel'] = tf.get_variable('kernel')
+        backbone_dict['backbone/kernel'] = tf.get_variable('kernel', trainable=True)
     # C2 - first_block - shortcut
     with tf.variable_scope('backbone/C2/block1/shortcut', reuse=True):
-        backbone_dict['backbone/C2/block1/shortcut/kernel'] = tf.get_variable('kernel')
+        backbone_dict['backbone/C2/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
     # C2 - 3blocks - 3convs
     for block_i in range(1, 4):
         for conv_i in range(1, 4):
             with tf.variable_scope('backbone/C2/block' + str(block_i) + '/conv' + str(conv_i), reuse=True):
-                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel')
-                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta')
-                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma')
+                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel', trainable=True)
+                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta', trainable=True)
+                backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C2/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
     # C3 - first_block -shortcut
     with tf.variable_scope('backbone/C3/block1/shortcut', reuse=True):
-        backbone_dict['backbone/C3/block1/shortcut/kernel'] = tf.get_variable('kernel')
+        backbone_dict['backbone/C3/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
     # C3 - 4blocks - 3convs
     for block_i in range(1,5):
         for conv_i in range(1,4):
             with tf.variable_scope('backbone/C3/block' + str(block_i) + '/conv' + str(conv_i), reuse=True):
-                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel')
-                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta')
-                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma')
+                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel', trainable=True)
+                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta', trainable=True)
+                backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C3/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
     # C4 - first_block - shortcut
     with tf.variable_scope('backbone/C4/block1/shortcut', reuse=True):
-        backbone_dict['backbone/C4/block1/shortcut/kernel'] = tf.get_variable('kernel')
+        backbone_dict['backbone/C4/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
     # C4 - 6blocks - 3convs
     for block_i in range(1,7):
         for conv_i in range(1,4):
             with tf.variable_scope('backbone/C4/block' + str(block_i) + '/conv' + str(conv_i), reuse=True):
-                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel')
-                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta')
-                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma')
+                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel', trainable=True)
+                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta', trainable=True)
+                backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
     # C5 - first_block - shortcut
     with tf.variable_scope('backbone/C5/block1/shortcut', reuse=True):
-        backbone_dict['backbone/C5/block1/shortcut/kernel'] = tf.get_variable('kernel')
+        backbone_dict['backbone/C5/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
     # C5 - 3blocks - 3convs
     for block_i in range(1,4):
         for conv_i in range(1,4):
             with tf.variable_scope('backbone/C5/block' + str(block_i) + '/conv' + str(conv_i), reuse=True):
-                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel')
-                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta')
-                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma')
+                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/kernel'] = tf.get_variable('kernel', trainable=True)
+                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/beta'] = tf.get_variable('beta', trainable=True)
+                backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
 
