@@ -537,18 +537,18 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
                                                                                             compression_type='GZIP',
                                                                                             num_parallel_reads=4),
                                                    cycle_length=10, block_length=10, num_parallel_calls=4)
-        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*num_gpu*2) # prefetch
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*2) # prefetch
         subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
         subset[gpu_id] = subset[gpu_id].filter(filter_bbox) # filter tiny tight bbox
         if data_format == 'channels_first':
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=10000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=7000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs
-        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=num_gpu*2)
+        subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*2)
 
     print('Dataset pipeline built for {} GPUs.'.format(num_gpu))
 

@@ -34,7 +34,7 @@ _OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.01
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 1.2e-5 # cannot use lr>1e-5
+    _INIT_LR = 1.2e-5 # cannot use lr>1.2e-5
 else:
     _INIT_LR = 0.01
 

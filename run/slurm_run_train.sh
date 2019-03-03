@@ -2,7 +2,7 @@
 #SBATCH --job-name=insane_fast_train_gpu4_b128
 #SBATCH --nodes=1
 #SBATCH --cpus=16
-#SBATCH --mem=100GB
+#SBATCH --mem=128GB
 #SBATCH --gres=gpu:p6000:4
 #SBATCH --gres-flags=enforce-binding
 #SBATCH --time=3-12:00:00
