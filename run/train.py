@@ -22,10 +22,10 @@ _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
 _NUM_GPU = 4
 _NUM_SHARDS = 4000 # number of tfrecords
-_BATCH_SIZE = 16*4 # how many pairs per iter, p6000_4: 128, titanx_4: 64
-_PAIRS_PER_EP = 50000 * _BATCH_SIZE # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper (batch=32)
+_BATCH_SIZE = 16*8 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
+_PAIRS_PER_EP = 50000 * 8 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
-_EPOCHS = 75
+_EPOCHS = 45
 _WARMUP_EP = 5 # number of epochs for warm up
 _BN_MOMENTUM = 0.99 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
@@ -34,7 +34,7 @@ _OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.01
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 1e-5 # cannot use lr>1e-5
+    _INIT_LR = 1.2e-5 # cannot use lr>1e-5
 else:
     _INIT_LR = 0.01
 
@@ -43,14 +43,14 @@ _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
 _SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/' #
-_SAVE_CHECKPOINT_EP = 5
+_SAVE_CHECKPOINT_EP = 1 # 6.25k if batch=64, 3.125k if batch=128
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
 # determine number of iterations
 # iters_per_epoch = int(_NUM_TRAIN / _BATCH_SIZE) + 1
-iters_per_epoch = int(_PAIRS_PER_EP / _BATCH_SIZE) # 50000 iters/ep for batch=32
+iters_per_epoch = int(_PAIRS_PER_EP / _BATCH_SIZE) # 6250 iters/ep for batch=64, 3125 if batch=128
 iters_warmup= _WARMUP_EP * iters_per_epoch
 iters_total = (_EPOCHS + _WARMUP_EP) * iters_per_epoch
 
