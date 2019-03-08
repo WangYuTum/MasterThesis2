@@ -26,7 +26,7 @@ class ResNet():
         self.num_filters_ = params.get('num_filters', [64, 128, 256, 512])
         self.stage_number_ = params.get('stage_numbers', [2, 3, 4, 5])
         self.num_blocks_ = params.get('num_blocks', [3, 4, 6, 3])
-        self.res_strides_ = params.get('res_strides', [1, 2, 2, 2])
+        self.res_strides_ = params.get('res_strides', [1, 2, 1, 1])
         self.bn_momentum_ = params.get('bn_momentum', 0.997)
         self.bn_epsilon_ = params.get('bn_epsilon', 1e-5)
 
@@ -52,13 +52,19 @@ class ResNet():
         with tf.variable_scope('C' + str(stage_num)):
             ############################ 1st block with shortcut conv ##################################
             with tf.variable_scope('block1'):
-            # 1st res block with stride (for down-sampling in C3, C4, C5)
+            # 1st res block with stride 2 (if in C3, for downsampling)
+            # only use dilate=2, 4 for c4, c5
+                dilate_rate = 1
+                if stage_num == 4:
+                    dilate_rate = 2
+                if stage_num == 5:
+                    dilate_rate = 4
                 in_dim = self.num_filters_[stage_num-2] if stage_num == 2 else self.num_filters_[stage_num-3]*4
                 out_dim = num_filters
                 inputs = nn.res_block(inputs=inputs, filters=[in_dim, out_dim], shortcut=True,
                                       stride=stride, l2_decay=self.l2_weight_, momentum=self.bn_momentum_,
                                       epsilon=self.bn_epsilon_, training=training, data_format=self.data_format_,
-                                      first_block=True)
+                                      first_block=True, dilate=dilate_rate)
 
             ############################ the rest blocks with indentity skip ##################################
             for block_id in range(2, num_blocks+1):
@@ -66,7 +72,7 @@ class ResNet():
                     inputs = nn.res_block(inputs=inputs, filters=[num_filters, num_filters], shortcut=False,
                                           stride=1, l2_decay=self.l2_weight_, momentum=self.bn_momentum_,
                                           epsilon=self.bn_epsilon_, training=training, data_format=self.data_format_,
-                                          first_block=False)
+                                          first_block=False, dilate=1)
 
         return inputs
 
@@ -85,10 +91,10 @@ class ResNet():
             ############################ initial conv 7x7, down-sample 4x ##################################
             inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
                                    stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
-                                   data_format=self.data_format_)
+                                   data_format=self.data_format_, pad='SAME', dilate_rate=1)
             # down-sample again by pooling
             inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
-                                 data_format=self.data_format_)
+                                 data_format=self.data_format_, pad='VALID')
 
             ############################ Resnet stages C2 ~ C5 ##################################
             for stage_id in range(2, 6):
@@ -101,6 +107,7 @@ class ResNet():
                 stage_out.append(inputs)
 
             ############################ Feature Pyramids ##################################
+            """
             with tf.variable_scope('P5'):
                 with tf.variable_scope('feat_down'):
                     output = nn.conv_layer(inputs=stage_out[3], filters=[2048, 256], kernel_size=1, stride=1,
@@ -156,6 +163,7 @@ class ResNet():
             pyramid_out.reverse() # to the order of p2, p3, p4, p5
 
         return pyramid_out[0] # [n, h/4, w/4, 256]
+        """
 
 
     def build_model(self, inputs, training):
@@ -175,10 +183,10 @@ class ResNet():
             ############################ initial conv 7x7, down-sample 4x ##################################
             inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
                                    stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
-                                   data_format=self.data_format_)
+                                   data_format=self.data_format_, pad='VALID', dilate_rate=1)
             # down-sample again by pooling
             inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
-                                 data_format=self.data_format_)
+                                 data_format=self.data_format_, pad='SAME')
 
             ############################ Resnet stages C2 ~ C5 ##################################
             for stage_id in range(2, 6):
@@ -191,6 +199,7 @@ class ResNet():
                 stage_out.append(inputs)
 
             ############################ Feature Pyramids ##################################
+            """
             with tf.variable_scope('P5'):
                 with tf.variable_scope('feat_down'):
                     output = nn.conv_layer(inputs=stage_out[3], filters=[2048, 256], kernel_size=1, stride=1,
@@ -244,31 +253,58 @@ class ResNet():
                 pyramid_out.append(output)
             pyramid_inter.reverse() # to the order of m2, m3, m4, m5
             pyramid_out.reverse() # to the order of p2, p3, p4, p5
-
+            """
         ############################ Loc & Mask layer ##################################
         with tf.variable_scope('heads'):
-            # during training, each templar/search image have the same shape. [1, 256, 64, 64] from P2
-            # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 64, 64]
-            # templars are [0 : batch_size/2, 256, 64, 64], search images are [batch_size/2 : batch_size, 256, 64, 64]
+            # during training, each templar/search image have the same shape. [1, 256, 31, 31] from C5
+            # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 31, 31]
+            # templars are [0 : batch_size/2, 256, 31, 31], search images are [batch_size/2 : batch_size, 256, 31, 31]
 
             ################################## cross-correlation branch #################################
-            # Note that this branch doesn't have trainable variables
+            # BN + relu first
+            head_out = nn.batch_norm(inputs=stage_out[3], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+                                data_format=self.data_format_)
+            head_out = tf.nn.relu(head_out)
             # central crop the templar features to 32x32, and make a set of filters from them
-            templar_feat = pyramid_out[0][0:int(self.batch_/2),:,:,:] # get P2 templar feature maps
+            templar_feat = head_out[0:int(self.batch_/2),:,:,:] # get templar feature maps
             templar_feat = tf.transpose(templar_feat, [0,2,3,1]) # to [n, h, w, c]
-            templar_feat = tf.image.central_crop(image=templar_feat, central_fraction=0.5) # [batch/2, 32, 32, 256]
-            templar_feat = tf.transpose(templar_feat, [1,2,3,0]) # reshape to [32, 32, 256, batch/2]
-            # extract search image feature maps from P2
-            search_feat = pyramid_out[0][int(self.batch_/2):self.batch_,:,:,:] # [batch/2, 256, 64, 64]
+            templar_feat = tf.image.crop_to_bounding_box(image=templar_feat, offset_height=8, offset_width=8,
+                                                         target_height=15, target_width=15)  # [batch/2, 31, 31, 256] -> [batch/2, 15, 15, 256]
+            templar_feat = tf.transpose(templar_feat, [0, 3, 1, 2]) # [n, c, h, w]
+            with tf.variable_scope('temp_adjust'):
+                templar_adjust = nn.conv_layer(inputs=templar_feat, filters=[2048, 256], kernel_size=1,
+                                               stride=1, l2_decay=self.l2_weight_, training=training,
+                                               data_format=self.data_format_, pad='SAME', dilate_rate=1)
+                bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                              training=training)  # [256]
+                print('Create {0}, {1}'.format(bias_temp.name, [256]))
+                templar_adjust = tf.nn.bias_add(value=templar_adjust, bias=bias_temp,data_format='NCHW') # [16*batch/2, 256, 15, 15]
+                templar_adjust = tf.transpose(templar_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, batch/2]
+            # extract search image feature maps from C5
+            search_feat = head_out[int(self.batch_/2):self.batch_,:,:,:] # [batch/2, 256, 31, 31]
+            with tf.variable_scope('search_adjust'):
+                search_adjust = nn.conv_layer(inputs=search_feat, filters=[2048, 256], kernel_size=1,
+                                               stride=1, l2_decay=self.l2_weight_, training=training,
+                                               data_format=self.data_format_, pad='SAME', dilate_rate=1)
+                bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                                    training=training)  # [256]
+                print('Create {0}, {1}'.format(bias_search.name, [256]))
+                search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search, data_format='NCHW') # [16*batch/2, 256, 31, 31]
             # do cross-correlations, batch/2 conv operations
             score_maps = []
             for batch_i in range(int(self.batch_/2)):
-                input_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
-                input_filter = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
+                input_feat = search_adjust[batch_i:batch_i+1, :, :, :] # [1, 256, 31, 31]
+                input_filter = templar_adjust[:, :, :, batch_i:batch_i+1] # [15, 15, 256, 1]
                 score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1,1,1,1], padding='VALID',
-                           use_cudnn_on_gpu=True, data_format='NCHW') # [1, 1, 33, 33]
+                           use_cudnn_on_gpu=True, data_format='NCHW') # [1, 1, 17, 17]
                 score_maps.append(score_map)
-            final_scores = tf.concat(axis=0, values=score_maps) # [batch/2, 1, 33, 33]
+            final_scores = tf.concat(axis=0, values=score_maps) # [batch/2, 1, 17, 17]
+            with tf.variable_scope('final_bias'):
+                final_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
+                                                      training=training)  # [1]
+                print('Create {0}, {1}'.format(final_bias.name, [1]))
+                final_scores = tf.nn.bias_add(value=final_scores, bias=final_bias,
+                                               data_format='NCHW')  # [batch/2, 1, 17, 17]
             print('Cross correlation layers built.')
 
             ################################## mask-propagte branch #################################
@@ -308,9 +344,9 @@ class ResNet():
 
     def loss_score(self, score_map, score_gt, score_weight, scope):
         '''
-        :param score_map: [batch/2, 1, 33, 33], pred score map for each pair, tf.float32
-        :param score_gt: [batch/2, 1, 33, 33], gt score map for each pair, tf.int32
-        :param score_weight: [batch/2, 1, 33, 33], balanced weight for score map, tf.float32
+        :param score_map: [batch/2, 1, 17, 17], pred score map for each pair, tf.float32
+        :param score_gt: [batch/2, 1, 17, 17], gt score map for each pair, tf.int32
+        :param score_weight: [batch/2, 1, 17, 17], balanced weight for score map, tf.float32
         :param scope: context of the current tower, VERY important in multi-GPU setup
         :return: score_loss + l2_loss
         '''

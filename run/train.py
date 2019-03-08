@@ -20,21 +20,21 @@ import time
 
 _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
-_NUM_GPU = 4
+_NUM_GPU = 1
 _NUM_SHARDS = 4000 # number of tfrecords
-_BATCH_SIZE = 16*8 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
-_PAIRS_PER_EP = 50000 * 8 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
+_BATCH_SIZE = 16 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
+_PAIRS_PER_EP = 50000 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 45
 _WARMUP_EP = 5 # number of epochs for warm up
-_BN_MOMENTUM = 0.99 # can be 0.9 for training on large dataset, default=0.997
+_BN_MOMENTUM = 0.997 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
 
 _OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.01
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 1.2e-5 # cannot use lr>1.2e-5
+    _INIT_LR = 1e-4 # cannot use lr>1.2e-5
 else:
     _INIT_LR = 0.01
 
@@ -44,7 +44,7 @@ _DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
 _SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/' #
 _SAVE_CHECKPOINT_EP = 1 # 6.25k if batch=64, 3.125k if batch=128
-_SAVE_SUM_ITER = 20
+_SAVE_SUM_ITER = 2
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
@@ -191,7 +191,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                 _, loss_v = sess.run([update_op, avg_loss])
 
                 # print loss
-                if iter_i % 20 == 0:
+                if iter_i % 2 == 0:
                     print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:

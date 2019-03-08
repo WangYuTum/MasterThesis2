@@ -16,6 +16,7 @@ from __future__ import print_function
 import tensorflow as tf
 import numpy as np
 import os
+from scipy.ndimage.morphology import binary_dilation
 
 _DEFAULT_SIZE = 256
 _NUM_CHANNELS = 3
@@ -129,7 +130,7 @@ def parse_record(raw_record, is_training, dtype):
     score = tf.cast(score, tf.int32)
     score_weight = tf.cast(score_weight, dtype)
     tight_temp_bbox = tf.cast(tight_temp_bbox, tf.int32)
-    tight_search_bbox = tf.cast(tight_search_bbox, tf.int32)
+    #tight_search_bbox = tf.cast(tight_search_bbox, tf.int32)
 
     dict = {'templar': templar_img, 'search': search_img, 'score': score, 'score_weight': score_weight,
             'tight_temp_bbox': tight_temp_bbox, 'tight_search_bbox': tight_search_bbox}
@@ -256,10 +257,10 @@ def distort_bounding_box(input_bbox, random_shift):
     :return: [xmin', ymin', xmax', ymax']
     '''
 
-    h_rand = np.random.randint(low=-random_shift, high=random_shift+1, size=None, dtype=np.int32)
-    w_rand = np.random.randint(low=-random_shift, high=random_shift+1, size=None, dtype=np.int32)
+    h_rand = np.random.randint(low=-(random_shift+1), high=random_shift, size=None, dtype=np.int32)
+    w_rand = np.random.randint(low=-(random_shift+1), high=random_shift, size=None, dtype=np.int32)
 
-    return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand]
+    return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand], h_rand, w_rand
 
 def extend_bbox_w(templar_bbox, extend_val_left, extend_val_right):
     '''
@@ -345,24 +346,29 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     def return_maxH_pad(x, h_max): return [h_max - 1, x - (h_max - 1)]
 
     ######################################## Process Templar #############################################
-    # Get tight bbox, randomly shift +-8 pixels
-    templar_bbox = distort_bounding_box(input_bbox=templar_bbox, random_shift=8) # new box [xmin, ymin, xmax, ymax]
+    # Get tight bbox, always keep the target at the center
+    #templar_bbox = distort_bounding_box(input_bbox=templar_bbox, random_shift=8) # new box [xmin, ymin, xmax, ymax]
     # pad border in case distorted bbox out of boundary
     mean_rgb = tf.reduce_mean(tf.cast(templar_img, tf.int64)) # tf.uint8
     mean_rgb = tf.cast(mean_rgb, tf.uint8)
-    templar_img = templar_img - mean_rgb
-    pad_border, pad_border = 10, 10
-    templar_img = tf.pad(tensor=templar_img, paddings=[[pad_border, pad_border], [pad_border, pad_border],[0, 0]],
-                         mode='CONSTANT', name=None, constant_values=0)
-    templar_img = templar_img + mean_rgb
+    #templar_img = templar_img - mean_rgb
+    #pad_border, pad_border = 10, 10
+    #templar_img = tf.pad(tensor=templar_img, paddings=[[pad_border, pad_border], [pad_border, pad_border],[0, 0]],
+    #                     mode='CONSTANT', name=None, constant_values=0)
+    #templar_img = templar_img + mean_rgb
     # update tight bbox position, the size stays the same, the 4 corners are updated
-    templar_bbox[0] = templar_bbox[0] + pad_border
-    templar_bbox[1] = templar_bbox[1] + pad_border
-    templar_bbox[2] = templar_bbox[2] + pad_border
-    templar_bbox[3] = templar_bbox[3] + pad_border
+    #templar_bbox[0] = templar_bbox[0] + pad_border
+    #templar_bbox[1] = templar_bbox[1] + pad_border
+    #templar_bbox[2] = templar_bbox[2] + pad_border
+    #templar_bbox[3] = templar_bbox[3] + pad_border
     bbox_h = templar_bbox[3] - templar_bbox[1]
     bbox_w = templar_bbox[2] - templar_bbox[0]
-    tight_bbox = templar_bbox # save the (distorted) tight bbox for display
+    # save the (distorted) tight bbox for display
+    tight_bbox = []
+    tight_bbox.append(templar_bbox[0])
+    tight_bbox.append(templar_bbox[1])
+    tight_bbox.append(templar_bbox[2])
+    tight_bbox.append(templar_bbox[3])
     p = tf.cast((bbox_h + bbox_w) / 4, tf.int32) # get context margin and compute new bbox
     argmin_dim = tf.math.argmin([bbox_w, bbox_h], axis=0) # 0: shorter in width, 1: shorter in height
     extend_w_cond = tf.equal(argmin_dim, 0) # true if extend in width dim, otherwise extend in height dim
@@ -400,24 +406,24 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
                                                    target_width=templar_bbox_new[2]-templar_bbox_new[0])
     with tf.control_dependencies([tf.debugging.assert_equal(templar_bbox_new[3] - templar_bbox_new[1],
                                                             templar_bbox_new[2] - templar_bbox_new[0])]):
-        # rescale to [128, 128], get the scale factor
-        scale_s = 128.0 / tf.cast(templar_bbox_new[3] - templar_bbox_new[1], tf.float32)
+        # rescale to [127, 127], get the scale factor
+        scale_s = 127.0 / tf.cast(templar_bbox_new[3] - templar_bbox_new[1], tf.float32)
         # rescale the tight bbox
         tight_temp_bbox = rescale_bbox(tight_bbox, scale_s)
         scale_s = tf.debugging.assert_all_finite(t=scale_s, msg='scale factor not a number!')
-        croped_templar = tf.image.resize_bilinear(images=tf.expand_dims(croped_templar, axis=0), size=[128, 128])
+        croped_templar = tf.image.resize_bilinear(images=tf.expand_dims(croped_templar, axis=0), size=[127, 127])
         croped_templar = tf.squeeze(croped_templar, axis=0) # [h, w, 3]
-    # pad boundary to [256, 256], update tight bbox
+    # pad boundary to [255, 255], update tight bbox
     croped_templar = croped_templar - tf.cast(mean_rgb, tf.float32)
-    templar_final, _, _ = image_pad(image=croped_templar, pad_value=0, out_size=256)
+    templar_final, _, _ = image_pad(image=croped_templar, pad_value=0, out_size=255)
     templar_final = templar_final + tf.cast(mean_rgb, tf.float32)
     tight_temp_bbox[0] = tight_temp_bbox[0] + 64
     tight_temp_bbox[1] = tight_temp_bbox[1] + 64
     tight_temp_bbox[2] = tight_temp_bbox[2] + 64
     tight_temp_bbox[3] = tight_temp_bbox[3] + 64
     # check size
-    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(templar_final)[0], 256),
-                                  tf.debugging.assert_equal(tf.shape(templar_final)[1], 256),
+    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(templar_final)[0], 255),
+                                  tf.debugging.assert_equal(tf.shape(templar_final)[1], 255),
                                   tf.debugging.assert_equal(tf.shape(templar_final)[2], 3)]):
         templar_final = tf.identity(templar_final)
 
@@ -434,13 +440,15 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     new_width = tf.cast(tf.cast(tf.shape(search_img)[1], tf.float32) * rescale_factor, tf.int32)
     search_img = tf.image.resize_bilinear(images=tf.expand_dims(search_img, axis=0), size=[new_height, new_width])
     search_img = tf.squeeze(search_img, axis=0)  # [h, w, 3]
-    ### crop around the center of the bbox to [256, 256], if out of boundary, pad with mean rgb value
+    ### randomly shift bbox +-64 pixels, get the shift values and new bbox center
+    search_bbox, h_shift, w_shift = distort_bounding_box(input_bbox=search_bbox, random_shift=64)  # new box [xmin, ymin, xmax, ymax], h_shift, w_shift
+    ### crop around the center of the bbox to [255, 255], if out of boundary, pad with mean rgb value
     img_width = tf.shape(search_img)[1]
     img_height = tf.shape(search_img)[0]
     x_center = tf.cast((search_bbox[2] - search_bbox[0]) / 2, tf.int32) + search_bbox[0]
     y_center = tf.cast((search_bbox[3] - search_bbox[1]) / 2, tf.int32) + search_bbox[1]
-    x_min, x_max = x_center - 128, x_center + 128
-    y_min, y_max = y_center - 128, y_center + 128
+    x_min, x_max = x_center - 127, x_center + 127
+    y_min, y_max = y_center - 127, y_center + 127
     [new_x_min, pad_w_begin] = tf.cond(x_min < 0, lambda :return_zero_pad(x_min), lambda :return_iden_no_pad(x_min))
     [new_x_max, pad_w_end] = tf.cond(x_max >= img_width, lambda :return_maxW_pad(x_max, img_width), lambda :return_iden_no_pad(x_max))
     [new_y_min, pad_h_begin] = tf.cond(y_min < 0, lambda :return_zero_pad(y_min), lambda :return_iden_no_pad(y_min))
@@ -452,46 +460,63 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     search_img = search_img + mean_rgb
     # crop
     search_final = tf.image.crop_to_bounding_box(image=search_img, offset_height=new_y_min, offset_width=new_x_min,
-                                                 target_height=256, target_width=256)
+                                                 target_height=255, target_width=255)
     ## get tight bbox within the rescaled search img [xmin, ymin, xmax, ymax]
     bbox_h_half = tf.cast((search_bbox[3] - search_bbox[1]) / 2, tf.int32) # might be zero
     bbox_w_half = tf.cast((search_bbox[2] - search_bbox[0]) / 2, tf.int32) # might be zero
     tight_search_bbox = []
-    tight_search_bbox.append(tf.maximum(128 - bbox_w_half, 0)) # xmin
-    tight_search_bbox.append(tf.maximum(128 - bbox_h_half, 0)) # ymin
-    tight_search_bbox.append(tf.minimum(128 + bbox_w_half, 255)) # xmax
-    tight_search_bbox.append(tf.minimum(128 + bbox_h_half, 255)) # ymax
-    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(search_final)[0], 256),
-                                  tf.debugging.assert_equal(tf.shape(search_final)[1], 256),
+    tight_search_bbox.append(127 - w_shift) # xmin
+    tight_search_bbox.append(127 - h_shift) # ymin
+    tight_search_bbox.append(127 + bbox_w_half - w_shift) # xmax
+    tight_search_bbox.append(127 + bbox_h_half - h_shift) # ymax
+    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(search_final)[0], 255),
+                                  tf.debugging.assert_equal(tf.shape(search_final)[1], 255),
                                   tf.debugging.assert_equal(tf.shape(search_final)[2], 3)]):
         search_final = tf.identity(search_final)
 
     ######################################## Process Score Map GT #############################################
-    # [33, 33, 1], [33, 33, 1]
-    # consider stride x (center - offset) <= 8 as positives, the central 5x5 are ones, the rest are zeros
-    score = tf.ones(shape=[5,5,1], dtype=tf.int32)
-    score, _, _ = image_pad(image=score, pad_value=0, out_size=33)
-    num_total = 33 * 33
-    num_positive = 5 * 5
+    # [17, 17, 1], [17, 17, 1]
+    # consider 8 x (center - offset) <= 16 as positives, stride=8; also note that target in search image is already shifted
+    t_center_x = int(8.0 - float(w_shift) / 8.0)
+    t_center_y = int(8.0 - float(h_shift) / 8.0)
+    score = np.zeros((17, 17), dtype=np.int32)
+    score[t_center_y, t_center_x] = 1
+    dila_structure = np.array([[False, False, True, False, False],
+                               [False, True, True, True, False],
+                               [True, True, True, True, True],
+                               [False, True, True, True, False],
+                               [False, False, True, False, False]], dtype=bool)
+    score = binary_dilation(score, structure=dila_structure).astype(score.dtype)
+    num_total = 17 * 17
+    num_positive = np.sum(score)
     num_negative = num_total - num_positive
     weight_positive = float(num_negative) / float(num_total)
     weight_negative = float(num_positive) / float(num_total)
-    mat_positive = tf.cast(score, tf.float32) * weight_positive # float
-    mat_negative = (1.0 - tf.cast(score, tf.float32)) * weight_negative # float
+    mat_positive = score.astype(np.float32) * weight_positive # float
+    mat_negative = (1.0 - score.astype(np.float32)) * weight_negative # float
     score_weight = mat_positive + mat_negative
+    score = np.expand_dims(score, axis=-1)
+    score_weight = np.expand_dims(score_weight, axis=-1)
+    # convert to tf tensor
+    score = tf.convert_to_tensor(score, tf.int32)
+    score_weight = tf.convert_to_tensor(score_weight, dtype=tf.float32)
     # check size
-    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(score)[0], 33),
-                                  tf.debugging.assert_equal(tf.shape(score)[1], 33),
+    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(score)[0], 17),
+                                  tf.debugging.assert_equal(tf.shape(score)[1], 17),
                                   tf.debugging.assert_equal(tf.shape(score)[2], 1),
-                                  tf.debugging.assert_equal(tf.shape(score_weight)[0], 33),
-                                  tf.debugging.assert_equal(tf.shape(score_weight)[1], 33),
+                                  tf.debugging.assert_equal(tf.shape(score_weight)[0], 17),
+                                  tf.debugging.assert_equal(tf.shape(score_weight)[1], 17),
                                   tf.debugging.assert_equal(tf.shape(score_weight)[2], 1)]):
         score = tf.identity(score)
         score_weight = tf.identity(score_weight)
 
     ################################### Randomly flip templar/search images ####################################
-    stacked = tf.stack(values=[templar_final, search_final], axis=0) # [2, 256, 256, 3]
-    stacked = tf.image.random_flip_left_right(image=stacked)
+    flip_v = tf.random.uniform(shape=[]) # scalar
+    flip_v = tf.greater_equal(flip_v, 0.5)
+    stacked = tf.stack(values=[templar_final, search_final], axis=0) # [2, 255, 255, 3]
+    stacked = tf.cond(flip_v, lambda : tf.image.flip_left_right(image=stacked), lambda :stacked)
+    score = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score), lambda :score)
+    score_weight = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score_weight), lambda :score_weight)
     templar_final = tf.squeeze(stacked[0:1, :,:,:])
     search_final = tf.squeeze(stacked[1:2, :,:,:])
 

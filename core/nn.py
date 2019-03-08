@@ -75,7 +75,7 @@ def pad_before_conv(inputs, kernel_size, data_format):
                                         [pad_beg, pad_end], [0, 0]])
     return padded_inputs
 
-def conv_layer(inputs, filters, kernel_size, stride, l2_decay, training, data_format):
+def conv_layer(inputs, filters, kernel_size, stride, l2_decay, training, data_format, pad, dilate_rate):
     ''' Only do convolution, no bias, no activation
     :param inputs: input tensor
     :param filters: [in_dim, out_dim]
@@ -84,21 +84,19 @@ def conv_layer(inputs, filters, kernel_size, stride, l2_decay, training, data_fo
     :param l2_decay: float32 decay
     :param training: boolean
     :param data_format: either be "channels_last" or "channels_first"
+    :param pad: pad strategy
     :return: outputs
     '''
 
-    # padding
-    if stride > 1:
-        inputs = pad_before_conv(inputs=inputs, kernel_size=kernel_size, data_format=data_format)
-    padding = 'SAME' if stride == 1 else 'VALID'
+    dilations = [1,1,dilate_rate,dilate_rate]
+    padding = pad
     strides = [1, 1, stride, stride] if data_format == 'channels_first' else [1, stride, stride, 1]
-
     data_format = 'NCHW' if data_format == 'channels_first' else 'NHWC'
     kernel = get_var_cpu_with_decay('kernel', [kernel_size, kernel_size, filters[0], filters[1]],
                                        l2_decay, tf.glorot_uniform_initializer(), training)
     print('Create {0}, {1}'.format(re.sub(':0', '', kernel.name), [kernel_size, kernel_size, filters[0], filters[1]]))
     outputs = tf.nn.conv2d(input=inputs, filter=kernel, strides=strides, padding=padding,
-                           use_cudnn_on_gpu=True, data_format=data_format)
+                           use_cudnn_on_gpu=True, data_format=data_format, dilations=dilations)
 
     return outputs
 
@@ -129,7 +127,7 @@ def conv_layer_var_kernel(inputs, filters, kernel_size, stride, l2_decay, traini
     return outputs
 
 
-def max_pool(inputs, pool_size, pool_stride, data_format):
+def max_pool(inputs, pool_size, pool_stride, data_format, pad):
     '''
     Assuming inputs dims are even. Output dim reduced by half after pooling
 
@@ -137,10 +135,11 @@ def max_pool(inputs, pool_size, pool_stride, data_format):
     :param pool_size: single int
     :param pool_stride: single int
     :param data_format: either be "channels_last" or "channels_first"
+    :param pad_v: what padding strategy
     :return: outputs
     '''
 
-    outputs = tf.layers.max_pooling2d(inputs=inputs, pool_size=pool_size, strides=pool_stride, padding='same',
+    outputs = tf.layers.max_pooling2d(inputs=inputs, pool_size=pool_size, strides=pool_stride, padding=pad,
         data_format=data_format)
 
     return outputs
@@ -167,7 +166,7 @@ def dense_layer(inputs, weight_size, l2_decay, training):
 
     return inputs
 
-def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, training, data_format, first_block):
+def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, training, data_format, first_block, dilate):
     '''
     Residual block with bottleneck
     :param inputs: input tensor
@@ -180,6 +179,7 @@ def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, tr
     :param training: boolean
     :param data_format: either be "channels_last" or "channels_first"
     :param first_block: boolean, determine the kernel dims
+    :param dilate rate
     :return: outputs
     '''
     shortcut = inputs
@@ -194,9 +194,14 @@ def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, tr
         filters_2 = [filters[1], filters[1]]
         filters_3 = [filters[1], filters[1]*4]
         with tf.variable_scope('shortcut'):
-            # shortcut conv with stride (for down-sampling in C3, C4, C5)
-            shortcut = conv_layer(inputs=inputs, filters=[filters[0], filters[1]*4], kernel_size=1, stride=stride,
-                                     l2_decay=l2_decay, training=training, data_format=data_format)
+            if stride == 2: # (for down-sampling in C3)
+                padding = 'VALID'
+                kernel = 3
+            else:
+                padding = 'SAME'
+                kernel = 1
+            shortcut = conv_layer(inputs=inputs, filters=[filters[0], filters[1]*4], kernel_size=kernel, stride=stride,
+                                     l2_decay=l2_decay, training=training, data_format=data_format, pad=padding, dilate_rate=dilate)
     else:
         # [in_dim, out_dim] are both the intermediate conv dim
         filters_1 = [filters[0]*4, filters[0]]
@@ -208,21 +213,25 @@ def res_block(inputs, filters, shortcut, stride, l2_decay, momentum, epsilon, tr
         # inputs = batch_norm(inputs=inputs, training=training, momentum=momentum, epsilon=epsilon, data_format=data_format)
         # inputs = tf.nn.relu(inputs)
         inputs = conv_layer(inputs=inputs, filters=filters_1, kernel_size=1, stride=1, l2_decay=l2_decay, training=training,
-                            data_format=data_format)
+                            data_format=data_format, pad='SAME', dilate_rate=dilate)
 
-    # 2nd bn + relu + conv (down-sample if stride=2)
+    # 2nd bn + relu + conv
+    if stride == 2:  # (for down-sampling in C3)
+        padding = 'VALID'
+    else:
+        padding = 'SAME'
     with tf.variable_scope('conv2'):
         inputs = batch_norm(inputs=inputs, training=training, momentum=momentum, epsilon=epsilon, data_format=data_format)
         inputs = tf.nn.relu(inputs)
         inputs = conv_layer(inputs=inputs, filters=filters_2, kernel_size=3, stride=stride, l2_decay=l2_decay, training=training,
-                            data_format=data_format)
+                            data_format=data_format, pad=padding, dilate_rate=dilate)
 
     # 3rd bn + relu + conv
     with tf.variable_scope('conv3'):
         inputs = batch_norm(inputs=inputs, training=training, momentum=momentum, epsilon=epsilon, data_format=data_format)
         inputs = tf.nn.relu(inputs)
         inputs = conv_layer(inputs=inputs, filters=filters_3, kernel_size=1, stride=1, l2_decay=l2_decay, training=training,
-                            data_format=data_format)
+                            data_format=data_format, pad='SAME', dilate_rate=dilate)
 
     # fuse with shortcut
     outputs = inputs + shortcut
@@ -439,4 +448,32 @@ def get_resnet50v2_backbone_vars():
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
 
     return backbone_dict
+
+def get_siamfc_vars(trainable=False):
+    '''
+    Get a list of vars to restore SiamFC weights (from init_conv to pyramid outs)
+    :return: var dict
+    '''
+
+    # get backbone of ResNet50v2
+    var_dict = get_resnet50v2_backbone_vars()
+    with tf.variable_scope('backbone/P5/feat_down', reuse=True):
+        var_dict['backbone/P5/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
+
+    with tf.variable_scope('backbone/P4/feat_down', reuse=True):
+        var_dict['backbone/P4/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('backbone/P4/feat_fuse', reuse=True):
+        var_dict['backbone/P4/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
+
+    with tf.variable_scope('backbone/P3/feat_down', reuse=True):
+        var_dict['backbone/P3/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('backbone/P3/feat_fuse', reuse=True):
+        var_dict['backbone/P3/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
+
+    with tf.variable_scope('backbone/P2/feat_down', reuse=True):
+        var_dict['backbone/P2/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('backbone/P2/feat_fuse', reuse=True):
+        var_dict['backbone/P2/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
+
+    return var_dict
 
