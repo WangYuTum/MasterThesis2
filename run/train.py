@@ -28,13 +28,13 @@ _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 45
 _WARMUP_EP = 5 # number of epochs for warm up
 _BN_MOMENTUM = 0.997 # can be 0.9 for training on large dataset, default=0.997
-_BN_EPSILON = 1e-5
+_BN_EPSILON = 1e-6
 
 _OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 0.01
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 1e-4 # cannot use lr>1.2e-5
+    _INIT_LR = 1.2e-5 # cannot use lr>1e-5
 else:
     _INIT_LR = 0.01
 
@@ -44,7 +44,7 @@ _DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
 _SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
 _SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/' #
 _SAVE_CHECKPOINT_EP = 1 # 6.25k if batch=64, 3.125k if batch=128
-_SAVE_SUM_ITER = 2
+_SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
@@ -90,7 +90,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
                     'batch': _BATCH_PER_GPU * 2, # num_img (templar+search) = batch * 2
                     'bn_momentum': _BN_MOMENTUM,
-                    'bn_epsilon': _BN_EPSILON}
+                    'bn_epsilon': _BN_EPSILON,
+                    'l2_weight': 0.0002}
 
     #######################################################################
     # Build model on multiple GPUs
@@ -147,6 +148,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         tf.summary.scalar(name='learning_rate', tensor=lr)
 
     # apply gradients, BN moving stats dependency is handled inside the BN layer
+    grads_and_vars = optimizer.apply_lr(grads_and_vars, global_step, iters_per_epoch)
+    grads_and_vars = [(tf.clip_by_value(grad, -1.0, 1.0), var) for grad, var in grads_and_vars]
     update_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # saver, summary, init
@@ -191,7 +194,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                 _, loss_v = sess.run([update_op, avg_loss])
 
                 # print loss
-                if iter_i % 2 == 0:
+                if iter_i % 20 == 0:
                     print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:

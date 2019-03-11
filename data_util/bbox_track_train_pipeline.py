@@ -257,8 +257,8 @@ def distort_bounding_box(input_bbox, random_shift):
     :return: [xmin', ymin', xmax', ymax']
     '''
 
-    h_rand = np.random.randint(low=-(random_shift+1), high=random_shift, size=None, dtype=np.int32)
-    w_rand = np.random.randint(low=-(random_shift+1), high=random_shift, size=None, dtype=np.int32)
+    h_rand = tf.random.uniform(shape=[], minval=-(random_shift-1), maxval=random_shift, dtype=tf.int32)
+    w_rand = tf.random.uniform(shape=[], minval=-(random_shift-1), maxval=random_shift, dtype=tf.int32)
 
     return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand], h_rand, w_rand
 
@@ -344,6 +344,19 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     def return_iden_no_pad(x): return [x, 0]
     def return_maxW_pad(x, w_max): return [w_max - 1, x - (w_max - 1)]
     def return_maxH_pad(x, h_max): return [h_max - 1, x - (h_max - 1)]
+    def flip_bbox(bbox, img_w):
+        '''
+        :param bbox: original bbox [xmin, ymin, xmax, ymax]
+        :param img_w:
+        :return: flipped bbox
+        '''
+        new_bbox = []
+        new_bbox.append(img_w - bbox[2])
+        new_bbox.append(bbox[1])
+        new_bbox.append(img_w - bbox[0])
+        new_bbox.append(bbox[3])
+
+        return new_bbox
 
     ######################################## Process Templar #############################################
     # Get tight bbox, always keep the target at the center
@@ -465,8 +478,8 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     bbox_h_half = tf.cast((search_bbox[3] - search_bbox[1]) / 2, tf.int32) # might be zero
     bbox_w_half = tf.cast((search_bbox[2] - search_bbox[0]) / 2, tf.int32) # might be zero
     tight_search_bbox = []
-    tight_search_bbox.append(127 - w_shift) # xmin
-    tight_search_bbox.append(127 - h_shift) # ymin
+    tight_search_bbox.append(127 - bbox_w_half - w_shift) # xmin
+    tight_search_bbox.append(127 - bbox_h_half - h_shift) # ymin
     tight_search_bbox.append(127 + bbox_w_half - w_shift) # xmax
     tight_search_bbox.append(127 + bbox_h_half - h_shift) # ymax
     with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(search_final)[0], 255),
@@ -477,29 +490,34 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     ######################################## Process Score Map GT #############################################
     # [17, 17, 1], [17, 17, 1]
     # consider 8 x (center - offset) <= 16 as positives, stride=8; also note that target in search image is already shifted
-    t_center_x = int(8.0 - float(w_shift) / 8.0)
-    t_center_y = int(8.0 - float(h_shift) / 8.0)
-    score = np.zeros((17, 17), dtype=np.int32)
-    score[t_center_y, t_center_x] = 1
+    t_center_x = tf.cast(8.0 - tf.cast(w_shift, tf.float32) / 8.0, tf.int32)
+    t_center_y = tf.cast(8.0 - tf.cast(h_shift, tf.float32) / 8.0, tf.int32)
+    score, score_weight = tf.py_func(func=build_gt_py, inp=[t_center_x, t_center_y], Tout=[tf.int32, tf.float32],
+                                     stateful=True, name=None)
+    """
+    score = tf.zeros([17, 17, 1], dtype=tf.int32)
+    delta = tf.sparse.SparseTensor(indices=[[t_center_y, t_center_x, 0]], values=[1], dense_shape=[17,17,1])
+    score = score + tf.sparse.to_dense(delta)
+    score = tf.expand_dims(score, axis=0) # [1,17,17,1]
     dila_structure = np.array([[False, False, True, False, False],
                                [False, True, True, True, False],
                                [True, True, True, True, True],
                                [False, True, True, True, False],
                                [False, False, True, False, False]], dtype=bool)
-    score = binary_dilation(score, structure=dila_structure).astype(score.dtype)
+    dila_structure = dila_structure.astype(np.int32)
+    dila_structure = np.expand_dims(dila_structure, axis=-1) # [5,5,1]
+    score = tf.nn.dilation2d(input=score, filter=dila_structure, strides=[1,1,1,1], rates=[1,1,1,1], padding='SAME')
     num_total = 17 * 17
-    num_positive = np.sum(score)
+    num_positive = tf.reduce_sum(score)
     num_negative = num_total - num_positive
-    weight_positive = float(num_negative) / float(num_total)
-    weight_negative = float(num_positive) / float(num_total)
-    mat_positive = score.astype(np.float32) * weight_positive # float
-    mat_negative = (1.0 - score.astype(np.float32)) * weight_negative # float
+    weight_positive = tf.cast(num_negative, tf.float32) / tf.cast(num_total, tf.float32)
+    weight_negative = tf.cast(num_positive, tf.float32) / tf.cast(num_total, tf.float32)
+    mat_positive = tf.cast(score, tf.float32) * weight_positive # float
+    mat_negative = (1.0 - tf.cast(score, tf.float32)) * weight_negative # float
     score_weight = mat_positive + mat_negative
-    score = np.expand_dims(score, axis=-1)
-    score_weight = np.expand_dims(score_weight, axis=-1)
-    # convert to tf tensor
-    score = tf.convert_to_tensor(score, tf.int32)
-    score_weight = tf.convert_to_tensor(score_weight, dtype=tf.float32)
+    score = tf.squeeze(score, 0)
+    score_weight = tf.squeeze(score_weight, 0)
+    """
     # check size
     with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(score)[0], 17),
                                   tf.debugging.assert_equal(tf.shape(score)[1], 17),
@@ -517,6 +535,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     stacked = tf.cond(flip_v, lambda : tf.image.flip_left_right(image=stacked), lambda :stacked)
     score = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score), lambda :score)
     score_weight = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score_weight), lambda :score_weight)
+    tight_search_bbox = tf.cond(flip_v, lambda :flip_bbox(tight_search_bbox, 255), lambda :tight_search_bbox)
     templar_final = tf.squeeze(stacked[0:1, :,:,:])
     search_final = tf.squeeze(stacked[1:2, :,:,:])
 
@@ -524,6 +543,32 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     search_final = mean_image_subtraction(search_final, _CHANNEL_MEANS, num_channels)
 
     return templar_final, search_final, score, score_weight, tight_temp_bbox, tight_search_bbox
+
+def build_gt_py(t_center_x, t_center_y):
+    '''
+    :param t_center_x: scalar, int32
+    :param t_center_y: scalar, int32
+    :return: numpy array: score, score_weight
+    '''
+
+    score = np.zeros((17,17), dtype=np.int32)
+    score[t_center_y, t_center_x] = 1
+    dila_structure = np.array([[False, False, True, False, False],
+                               [False, True, True, True, False],
+                               [True, True, True, True, True],
+                               [False, True, True, True, False],
+                               [False, False, True, False, False]], dtype=bool)
+    dilated_score = binary_dilation(input=score, structure=dila_structure).astype(np.int32) # [17,17]
+    num_total = 17 * 17
+    num_positive = np.sum(dilated_score)
+    num_negative = num_total - num_positive
+    weight_positive = num_negative.astype(np.float32) / float(num_total)
+    weight_negative = num_positive.astype(np.float32) / float(num_total)
+    mat_positive = score.astype(np.float32) * weight_positive  # float
+    mat_negative = (1.0 - score.astype(np.float32)) * weight_negative  # float
+    score_weight = mat_positive + mat_negative
+
+    return np.expand_dims(dilated_score, axis=-1), np.expand_dims(score_weight, axis=-1)
 
 
 ########################################################################
@@ -569,7 +614,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=7000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=3000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs

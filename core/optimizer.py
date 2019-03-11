@@ -80,3 +80,19 @@ def average_grads(tower_grads):
         avg_grads.append(grad_and_var)
 
     return avg_grads
+
+def apply_lr(grads_vars, global_step, iters_per_ep):
+
+    new_grads_vars = []
+    boundary = [iters_per_ep*5]
+    vals = [0.1, 1.0]
+    grad_decay = tf.train.piecewise_constant(global_step, boundary, vals)
+    for var in grads_vars:
+        var_name = str(var[1].name).split(':')[0]
+        if var_name.find('backbone') != -1:
+            grad = grad_decay * var[0]
+        else:
+            grad = var[0]
+        new_grads_vars.append((grad, var[1]))
+
+    return new_grads_vars
