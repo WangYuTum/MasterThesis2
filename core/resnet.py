@@ -85,8 +85,6 @@ class ResNet():
         training = False
         # the backbone
         stage_out = [] # outputs of c2 ~ c5
-        pyramid_inter = [] # intermediate pyramid outputs
-        pyramid_out = [] # outputs of p2 ~ p5
         with tf.variable_scope('backbone'):
             ############################ initial conv 7x7, down-sample 4x ##################################
             inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
@@ -106,65 +104,17 @@ class ResNet():
                 inputs = tf.identity(inputs, name='C%d_out'%stage_id)
                 stage_out.append(inputs)
 
-            ############################ Feature Pyramids ##################################
-            """
-            with tf.variable_scope('P5'):
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[3], filters=[2048, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_inter.append(output)
-                pyramid_out.append(output)
-            with tf.variable_scope('P4'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[2], filters=[1024, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[0], [0,2,3,1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            with tf.variable_scope('P3'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[1], filters=[512, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[1], [0, 2, 3, 1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            with tf.variable_scope('P2'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[0], filters=[256, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[2], [0, 2, 3, 1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            pyramid_inter.reverse() # to the order of m2, m3, m4, m5
-            pyramid_out.reverse() # to the order of p2, p3, p4, p5
+        ############################ Loc & Mask ##################################
+        with tf.variable_scope('heads'):
+            # during inf, each templar is [n, 256, 15, 15] from C5, search is [n, 256, 31, 31] from C5
+            ################################## cross-correlation branch #################################
+            # BN + relu first
+            head_out = nn.batch_norm(inputs=stage_out[3], training=training, momentum=self.bn_momentum_,
+                                    epsilon=self.bn_epsilon_,
+                                    data_format=self.data_format_)
+            feat_map = tf.nn.relu(head_out)
 
-        return pyramid_out[0] # [n, h/4, w/4, 256]
-        """
-
+        return feat_map
 
     def build_model(self, inputs, training):
         '''

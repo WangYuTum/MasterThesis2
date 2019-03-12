@@ -457,23 +457,19 @@ def get_siamfc_vars(trainable=False):
 
     # get backbone of ResNet50v2
     var_dict = get_resnet50v2_backbone_vars()
-    with tf.variable_scope('backbone/P5/feat_down', reuse=True):
-        var_dict['backbone/P5/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
-
-    with tf.variable_scope('backbone/P4/feat_down', reuse=True):
-        var_dict['backbone/P4/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
-    with tf.variable_scope('backbone/P4/feat_fuse', reuse=True):
-        var_dict['backbone/P4/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
-
-    with tf.variable_scope('backbone/P3/feat_down', reuse=True):
-        var_dict['backbone/P3/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
-    with tf.variable_scope('backbone/P3/feat_fuse', reuse=True):
-        var_dict['backbone/P3/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
-
-    with tf.variable_scope('backbone/P2/feat_down', reuse=True):
-        var_dict['backbone/P2/feat_down/kernel'] = tf.get_variable('kernel', trainable=trainable)
-    with tf.variable_scope('backbone/P2/feat_fuse', reuse=True):
-        var_dict['backbone/P2/feat_fuse/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('heads', reuse=True):
+        var_dict['heads/beta'] = tf.get_variable('beta', trainable=trainable)
+        var_dict['heads/gamma'] = tf.get_variable('gamma', trainable=trainable)
+        var_dict['heads/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
+        var_dict['heads/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
+    with tf.variable_scope('heads/temp_adjust', reuse=True):
+        var_dict['heads/temp_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
+        var_dict['heads/temp_adjust/bias'] = tf.get_variable('bias', trainable=trainable)
+    with tf.variable_scope('heads/search_adjust', reuse=True):
+        var_dict['heads/search_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
+        var_dict['heads/search_adjust/bias'] = tf.get_variable('bias', trainable=trainable)
+    with tf.variable_scope('heads/final_bias', reuse=True):
+        var_dict['heads/final_bias/bias'] = tf.get_variable('bias', trainable=trainable)
 
     return var_dict
 

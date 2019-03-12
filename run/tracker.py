@@ -15,7 +15,6 @@ import sys, os
 import tensorflow as tf
 sys.path.append('..')
 from core import resnet, nn
-import time
 import numpy as np
 
 class Tracker():
@@ -43,11 +42,11 @@ class Tracker():
         self._search_img = self.mean_image_subtraction(tf.squeeze(self._search_img, 0), self._CHANNEL_MEANS, 3)
         self._search_img = tf.expand_dims(self._search_img, 0)
 
-        # crop templar image to multiple patches according to given bbox, and rescale to [128, 128]
-        templar_imgs, self._scale_templars = self.crop_templars(self._templar_img, self._templar_bbox) # in [1, h, w, 3], out [n, 128, 128, 3]
+        # crop templar image to multiple patches according to given bbox, and rescale to [127, 127]
+        templar_imgs, self._scale_templars = self.crop_templars(self._templar_img, self._templar_bbox) # in [1, h, w, 3], out [n, 127, 127, 3]
 
         # crop search image to multiple patches according to previous bbox predictions
-        search_imgs = self.crop_searches(self._search_img, self._search_bbox) # in [1, h, w, 3], out [n, 256, 256, 3]
+        search_imgs = self.crop_searches(self._search_img, self._search_bbox) # in [1, h, w, 3], out [n, 255, 255, 3]
         tf.summary.image(name='search_patch', tensor=search_imgs)
 
 
@@ -56,30 +55,31 @@ class Tracker():
         def return_search(): return search_imgs
         siam_input = tf.cond(self._in_is_templar, return_temp, return_search)
         siam_model = resnet.ResNet(params={})
-        # input is [n, 128, 128, 3] if templars, or [n, 256, 256, 3] if searchs
+        # input is [n, 127, 127, 3] if templars, or [n, 255, 255, 3] if searchs
         siam_input = tf.transpose(siam_input, [0, 3, 1, 2]) # to [n,c,h,w]
-        siam_out = siam_model.build_inf_model(inputs=siam_input) # output [n, 256, 32, 32] or [n, 256, 64, 64]
+        siam_out = siam_model.build_inf_model(inputs=siam_input) # output [n, 256, 15, 15] or [n, 256, 31, 31]
+        siam_out = tf.cond(self._in_is_templar, lambda : self.build_templar_branch(siam_out), lambda : self.build_search_branch(siam_out))
 
         # build op to get templar kernels, this op will only be executed once for each video during init
-        templar_kernels = self.get_templar_kernels(siam_out) # [32, 32, 256, n]
+        templar_kernels = self.get_templar_kernels(siam_out) # [15, 15, 256, n]
         self._templar_kernels = tf.get_variable(name='templar_kernels', trainable=False,
                                                 initializer=tf.zeros_initializer(),
-                                                shape=[32,32,256,self._num_templars]) # [32, 32, 256, n]
-        self._assign_templar_kernels = tf.assign(self._templar_kernels, templar_kernels) # [32, 32, 256, n]
+                                                shape=[15,15,256,self._num_templars]) # [15, 15, 256, n]
+        self._assign_templar_kernels = tf.assign(self._templar_kernels, templar_kernels) # [15, 15, 256, n]
 
         # build op to get search feature maps
-        search_maps = self.get_search_maps(siam_out) # [n, 256, 64, 64]
+        search_maps = self.get_search_maps(siam_out) # [n, 256, 31, 31]
 
         # build op to compute cc response maps, take inputs as templar kernels, search_maps
-        self._response_maps = self.compute_response(self._templar_kernels, search_maps) # outputs [n, 33, 33, 1] response map
-        self._response_maps = self.upsample_response(self._response_maps) # outputs [n, 33*scale, 33*scale, 1] response map
+        self._response_maps = self.compute_response(self._templar_kernels, search_maps) # outputs [n, 17, 17, 1] response map
+        self._response_maps = self.upsample_response(self._response_maps) # outputs [n, 17*scale, 17*scale, 1] response map
         self._sum_op = tf.summary.merge_all()
         init_op = tf.global_variables_initializer()
         print('Built tracking graph done.')
 
         # create cosine window to penalize large displacements
-        self._window = np.dot(np.expand_dims(np.hanning(33*self._response_up), 1),
-                        np.expand_dims(np.hanning(33*self._response_up), 0))
+        self._window = np.dot(np.expand_dims(np.hanning(17*self._response_up), 1),
+                        np.expand_dims(np.hanning(17*self._response_up), 0))
         self._window = self._window / np.sum(self._window)  # normalize window
         self._window_influence = 0.176
 
@@ -100,27 +100,70 @@ class Tracker():
 
     def compute_response(self, templar_kernels, search_maps):
         '''
-        :param templar_kernels: [32, 32, 256, n]
-        :param search_maps: [n, 256, 64, 64]
-        :return: [n, 33, 33, 1] response maps for n templars
+        :param templar_kernels: [15, 15, 256, n]
+        :param search_maps: [n, 256, 31, 31]
+        :return: [n, 17, 17, 1] response maps for n templars
         '''
 
         score_maps = []
         for i in range(self._num_templars):
-            input_feat = search_maps[i:i + 1, :, :, :]  # [1, 256, 64, 64]
-            input_filter = templar_kernels[:, :, :, i:i + 1]  # [32, 32, 256, 1]
+            input_feat = search_maps[i:i + 1, :, :, :]  # [1, 256, 31, 31]
+            input_filter = templar_kernels[:, :, :, i:i + 1]  # [15, 15, 256, 1]
             score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1, 1, 1, 1], padding='VALID',
-                                     use_cudnn_on_gpu=True, data_format='NCHW')  # [1, 1, 33, 33]
+                                     use_cudnn_on_gpu=True, data_format='NCHW')  # [1, 1, 17, 17]
             score_maps.append(score_map)
-        final_scores = tf.concat(axis=0, values=score_maps)  # [num_templars, 1, 33, 33]
-        final_scores = tf.transpose(final_scores, [0,2,3,1]) # [num_templars, 33, 33, 1]
-        # TODO: debug
+        final_scores = tf.concat(axis=0, values=score_maps)  # [num_templars, 1, 17, 17]
+        with tf.variable_scope('heads'):
+            with tf.variable_scope('final_bias'):
+                final_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
+                                                     training=False)  # [1]
+                print('Create {0}, {1}'.format(final_bias.name, [1]))
+                final_scores = tf.nn.bias_add(value=final_scores, bias=final_bias,
+                                              data_format='NCHW')  # [num_templars, 1, 17, 17]
+                print('Cross correlation layers built.')
+        final_scores = tf.transpose(final_scores, [0,2,3,1]) # [num_templars, 17, 17, 1]
         tf.summary.image(name='score_map', tensor=final_scores)
-        response_maps = tf.sigmoid(final_scores) # [num_templars, 33, 33, 1], probability maps
-
+        response_maps = tf.sigmoid(final_scores) # [num_templars, 17, 17, 1], probability maps
 
         return response_maps
 
+    def build_templar_branch(self, in_tensor):
+        '''
+        :param in_tensor: [n, c, h, w]
+        :return: [n, c, h, w]
+        '''
+
+        with tf.variable_scope('heads'):
+            with tf.variable_scope('temp_adjust'):
+                templar_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
+                                               stride=1, l2_decay=0.0002, training=False,
+                                               data_format='channels_first', pad='SAME', dilate_rate=1)
+                bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                                    training=False)  # [256]
+                print('Create {0}, {1}'.format(bias_temp.name, [256]))
+                templar_adjust = tf.nn.bias_add(value=templar_adjust, bias=bias_temp,
+                                                data_format='NCHW')  # [n, 256, 15, 15]
+                templar_adjust = tf.transpose(templar_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, n]
+
+        return templar_adjust
+
+    def build_search_branch(self, in_tensor):
+        '''
+        :param in_tensor: [n, c, h, w]
+        :return: [n, c, h, w]
+        '''
+
+        with tf.variable_scope('search_adjust'):
+            search_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
+                                          stride=1, l2_decay=0.0002, training=False,
+                                          data_format='channels_first', pad='SAME', dilate_rate=1)
+            bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                                  training=False)  # [256]
+            print('Create {0}, {1}'.format(bias_search.name, [256]))
+            search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search,
+                                           data_format='NCHW')  # [n, 256, 31, 31]
+
+        return search_adjust
 
     def init_tracker(self, init_img, init_bbox):
         '''
@@ -171,20 +214,20 @@ class Tracker():
         # process each response for each templar and get tracked bbox position
         tracked_bbox = []
         for i in range(self._num_templars):
-            response = np.squeeze(response_maps_[i:i+1, :, :, :]) # [33*up_scale, 33*up_scale]
-            response = (1 - self._window_influence) * response + self._window_influence * self._window # [33*up_scale, 33*up_scale]
+            response = np.squeeze(response_maps_[i:i+1, :, :, :]) # [17*up_scale, 17*up_scale]
+            response = (1 - self._window_influence) * response + self._window_influence * self._window # [17*up_scale, 17*up_scale]
             # find maximum response
             r_max, c_max = np.unravel_index(response.argmax(),
                                             response.shape)
             # convert coord before scaling the search image
             p_coor = np.array([r_max, c_max])
             # displacement from the center
-            disp_instance_final = p_coor - np.array([264.5, 264.5]) # 33 * 16 / 2
+            disp_instance_final = p_coor - np.array([136, 136]) # 17 * 16 / 2
             disp_instance_final = disp_instance_final / self._response_up
             # div by object rescale factor
             disp_instance_feat = disp_instance_final / self._scale_templars_val[i]
             # mul by stride
-            disp_instance_feat = disp_instance_feat * 4
+            disp_instance_feat = disp_instance_feat * 8
             # update the bbox position
             self._pre_locations[i][0] = self._pre_locations[i][0] + disp_instance_feat[1]
             self._pre_locations[i][1] = self._pre_locations[i][1] + disp_instance_feat[0]
@@ -216,7 +259,7 @@ class Tracker():
         '''
         :param img: [1, h, w, 3] tensor float32
         :param search_bbox: [n, 4] tensor int32, each bbox is [xmin, ymin, xmax, ymax]
-        :return: [n, 256, 256, 3] tensor float32
+        :return: [n, 255, 255, 3] tensor float32
         '''
 
         # self._pre_locations is a list of bbox tensors, each ele is a tensor [xmin, ymin, xmax, ymax], denotes the previous target location
@@ -257,13 +300,13 @@ class Tracker():
         :param search_img: [1, h, w, 3]
         :param center_x:
         :param center_y:
-        :return: [1, 256, 256, 3] centered at (center_x, center_y)
+        :return: [1, 255, 255, 3] centered at (center_x, center_y)
         '''
         img_h = tf.shape(search_img)[1]
         img_w = tf.shape(search_img)[2]
         mean_rgb = tf.reduce_mean(search_img)
-        x_min, x_max = center_x - 128, center_x + 128 # may out of boundary
-        y_min, y_max = center_y - 128, center_y + 128 # may out of boundary
+        x_min, x_max = center_x - 127, center_x + 127 # may out of boundary
+        y_min, y_max = center_y - 127, center_y + 127 # may out of boundary
 
         [new_x_min, pad_w_begin] = tf.cond(x_min < 0, lambda: self.return_zero_pad(x_min), lambda: self.return_iden_no_pad(x_min))
         [new_x_max, pad_w_end] = tf.cond(x_max >= img_w, lambda: self.return_maxW_pad(x_max, img_w),
@@ -279,7 +322,7 @@ class Tracker():
         search_img = search_img + mean_rgb
         # crop
         search_final = tf.image.crop_to_bounding_box(image=search_img, offset_height=new_y_min, offset_width=new_x_min,
-                                                     target_height=256, target_width=256)
+                                                     target_height=255, target_width=255)
 
         return search_final
 
@@ -288,7 +331,7 @@ class Tracker():
         '''
         :param img: [1, h, w, 3] tensor, float32
         :param bbox: [n, 4] tensor int32, each bbox is [xmin, ymin, xmax, ymax]
-        :return: [n, 128, 128, 3] tensor, [tmp0_s, tmp1_s, ..., tmpN_s] list
+        :return: [n, 127, 127, 3] tensor, [tmp0_s, tmp1_s, ..., tmpN_s] list
         '''
 
         mean_rgb = tf.reduce_mean(img)
@@ -336,9 +379,9 @@ class Tracker():
                                                 target_height=height,
                                                 target_width=width)
             # resize
-            tmp = tf.image.resize_bilinear(images=tmp, size=[128, 128])
+            tmp = tf.image.resize_bilinear(images=tmp, size=[127, 127])
             templars.append(tmp)
-            scale_f.append(128.0/tf.cast(height, tf.float32))
+            scale_f.append(127.0/tf.cast(height, tf.float32))
 
         return tf.concat(values=templars, axis=0), scale_f
 
