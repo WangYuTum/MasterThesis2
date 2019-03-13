@@ -94,8 +94,8 @@ class ResNet():
             inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
                                  data_format=self.data_format_, pad='VALID')
 
-            ############################ Resnet stages C2 ~ C5 ##################################
-            for stage_id in range(2, 6):
+            ############################ Resnet stages C2 ~ C4 ##################################
+            for stage_id in range(2, 5):
                 inputs = self.res_stage(inputs=inputs, num_filters=self.num_filters_[stage_id-2],
                                    stage_num=self.stage_number_[stage_id-2],
                                    num_blocks=self.num_blocks_[stage_id-2],
@@ -106,10 +106,10 @@ class ResNet():
 
         ############################ Loc & Mask ##################################
         with tf.variable_scope('heads'):
-            # during inf, each templar is [n, 256, 15, 15] from C5, search is [n, 256, 31, 31] from C5
+            # during inf, each templar is [n, 256, 15, 15] from C4, search is [n, 256, 31, 31] from C4
             ################################## cross-correlation branch #################################
             # BN + relu first
-            head_out = nn.batch_norm(inputs=stage_out[3], training=training, momentum=self.bn_momentum_,
+            head_out = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_,
                                     epsilon=self.bn_epsilon_,
                                     data_format=self.data_format_)
             feat_map = tf.nn.relu(head_out)
@@ -138,8 +138,8 @@ class ResNet():
             inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
                                  data_format=self.data_format_, pad='SAME')
 
-            ############################ Resnet stages C2 ~ C5 ##################################
-            for stage_id in range(2, 6):
+            ############################ Resnet stages C2 ~ C4 ##################################
+            for stage_id in range(2, 5):
                 inputs = self.res_stage(inputs=inputs, num_filters=self.num_filters_[stage_id-2],
                                    stage_num=self.stage_number_[stage_id-2],
                                    num_blocks=self.num_blocks_[stage_id-2],
@@ -206,13 +206,13 @@ class ResNet():
             """
         ############################ Loc & Mask layer ##################################
         with tf.variable_scope('heads'):
-            # during training, each templar/search image have the same shape. [1, 256, 31, 31] from C5
+            # during training, each templar/search image have the same shape. [1, 256, 31, 31] from C4
             # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 31, 31]
             # templars are [0 : batch_size/2, 256, 31, 31], search images are [batch_size/2 : batch_size, 256, 31, 31]
 
             ################################## cross-correlation branch #################################
             # BN + relu first
-            head_out = nn.batch_norm(inputs=stage_out[3], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+            head_out = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
                                 data_format=self.data_format_)
             head_out = tf.nn.relu(head_out)
             # central crop the templar features to 32x32, and make a set of filters from them
@@ -222,7 +222,7 @@ class ResNet():
                                                          target_height=15, target_width=15)  # [batch/2, 31, 31, 256] -> [batch/2, 15, 15, 256]
             templar_feat = tf.transpose(templar_feat, [0, 3, 1, 2]) # [n, c, h, w]
             with tf.variable_scope('temp_adjust'):
-                templar_adjust = nn.conv_layer(inputs=templar_feat, filters=[2048, 256], kernel_size=1,
+                templar_adjust = nn.conv_layer(inputs=templar_feat, filters=[1024, 256], kernel_size=1,
                                                stride=1, l2_decay=self.l2_weight_, training=training,
                                                data_format=self.data_format_, pad='SAME', dilate_rate=1)
                 bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
@@ -233,7 +233,7 @@ class ResNet():
             # extract search image feature maps from C5
             search_feat = head_out[int(self.batch_/2):self.batch_,:,:,:] # [batch/2, 256, 31, 31]
             with tf.variable_scope('search_adjust'):
-                search_adjust = nn.conv_layer(inputs=search_feat, filters=[2048, 256], kernel_size=1,
+                search_adjust = nn.conv_layer(inputs=search_feat, filters=[1024, 256], kernel_size=1,
                                                stride=1, l2_decay=self.l2_weight_, training=training,
                                                data_format=self.data_format_, pad='SAME', dilate_rate=1)
                 bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),

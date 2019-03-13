@@ -44,6 +44,7 @@ class Tracker():
 
         # crop templar image to multiple patches according to given bbox, and rescale to [127, 127]
         templar_imgs, self._scale_templars = self.crop_templars(self._templar_img, self._templar_bbox) # in [1, h, w, 3], out [n, 127, 127, 3]
+        tf.summary.image(name='templar_patch', tensor=templar_imgs)
 
         # crop search image to multiple patches according to previous bbox predictions
         search_imgs = self.crop_searches(self._search_img, self._search_bbox) # in [1, h, w, 3], out [n, 255, 255, 3]
@@ -152,16 +153,16 @@ class Tracker():
         :param in_tensor: [n, c, h, w]
         :return: [n, c, h, w]
         '''
-
-        with tf.variable_scope('search_adjust'):
-            search_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
-                                          stride=1, l2_decay=0.0002, training=False,
-                                          data_format='channels_first', pad='SAME', dilate_rate=1)
-            bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                                  training=False)  # [256]
-            print('Create {0}, {1}'.format(bias_search.name, [256]))
-            search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search,
-                                           data_format='NCHW')  # [n, 256, 31, 31]
+        with tf.variable_scope('heads'):
+            with tf.variable_scope('search_adjust'):
+                search_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
+                                              stride=1, l2_decay=0.0002, training=False,
+                                              data_format='channels_first', pad='SAME', dilate_rate=1)
+                bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                                      training=False)  # [256]
+                print('Create {0}, {1}'.format(bias_search.name, [256]))
+                search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search,
+                                               data_format='NCHW')  # [n, 256, 31, 31]
 
         return search_adjust
 
@@ -240,11 +241,11 @@ class Tracker():
 
     def get_templar_kernels(self, siam_out):
         '''
-        :param siam_out: [n, 256, 32, 32]
-        :return: [32, 32, 256, n] as n kernels for n templars
+        :param siam_out: [15, 15, 256, n]
+        :return: [15, 15, 256, n] as n kernels for n templars
         '''
 
-        return tf.transpose(siam_out, [2, 3, 1, 0])
+        return siam_out
 
     def get_search_maps(self, siam_out):
         '''

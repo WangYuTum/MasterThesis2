@@ -434,6 +434,7 @@ def get_resnet50v2_backbone_vars():
                 backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C4/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
+    """
     # C5 - first_block - shortcut
     with tf.variable_scope('backbone/C5/block1/shortcut', reuse=True):
         backbone_dict['backbone/C5/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
@@ -446,7 +447,7 @@ def get_resnet50v2_backbone_vars():
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/gamma'] = tf.get_variable('gamma', trainable=True)
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_mean'] = tf.get_variable('moving_mean')
                 backbone_dict['backbone/C5/block' + str(block_i) + '/conv' + str(conv_i) + '/moving_variance'] = tf.get_variable('moving_variance')
-
+    """
     return backbone_dict
 
 def get_siamfc_vars(trainable=False):

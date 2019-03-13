@@ -42,7 +42,7 @@ draw_bbox(img0_obj, [gt0[0], gt0[1], gt0[0]+gt0[2], gt0[1]+gt0[3]], save_dir+'/0
 ######### init tracker ###########
 trajectory = []
 trajectory.append([gt0[0], gt0[1], gt0[0]+gt0[2], gt0[1]+gt0[3]])
-tk = tracker.Tracker(num_templars=1, chkp='/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt-28125')
+tk = tracker.Tracker(num_templars=1, chkp='/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt-18750')
 sum_writer = tf.summary.FileWriter(logdir=save_dir, graph=tk._sess.graph)
 tk.init_tracker(init_img=np.expand_dims(img0_arr, 0), # [1, h, w, 3], pixel values 0-255
                 init_bbox=[[gt0[0], gt0[1], gt0[0]+gt0[2], gt0[1]+gt0[3]]]) #[[xmin, ymin, xmax, ymax], [xmin, ymin, xmax, ymax], ...]
