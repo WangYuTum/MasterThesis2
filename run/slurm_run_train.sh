@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus=8
 #SBATCH --mem=100GB
-#SBATCH --gres=gpu:p6000:1
+#SBATCH --gres=gpu:p6000:2
 #SBATCH --gres-flags=enforce-binding
 #SBATCH --time=3-12:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL,REQUEUE,TIME_LIMIT,TIME_LIMIT_50, TIME_LIMIT_90
