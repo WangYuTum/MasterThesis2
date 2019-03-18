@@ -148,62 +148,6 @@ class ResNet():
                 inputs = tf.identity(inputs, name='C%d_out'%stage_id)
                 stage_out.append(inputs)
 
-            ############################ Feature Pyramids ##################################
-            """
-            with tf.variable_scope('P5'):
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[3], filters=[2048, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_inter.append(output)
-                pyramid_out.append(output)
-            with tf.variable_scope('P4'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[2], filters=[1024, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[0], [0,2,3,1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            with tf.variable_scope('P3'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[1], filters=[512, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[1], [0, 2, 3, 1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            with tf.variable_scope('P2'):
-                # 1x1 conv
-                with tf.variable_scope('feat_down'):
-                    output = nn.conv_layer(inputs=stage_out[0], filters=[256, 256], kernel_size=1, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                up_size = [tf.shape(output)[2], tf.shape(output)[3]]
-                # feature add
-                output = tf.transpose(output, [0,2,3,1]) + tf.image.resize_images(images=tf.transpose(pyramid_inter[2], [0, 2, 3, 1]), size=up_size)
-                output = tf.transpose(output, [0, 3, 1, 2])
-                pyramid_inter.append(output)
-                # feature fuse
-                with tf.variable_scope('feat_fuse'):
-                    output = nn.conv_layer(inputs=output, filters=[256, 256], kernel_size=3, stride=1,
-                                            l2_decay=self.l2_weight_, training=training, data_format=self.data_format_)
-                pyramid_out.append(output)
-            pyramid_inter.reverse() # to the order of m2, m3, m4, m5
-            pyramid_out.reverse() # to the order of p2, p3, p4, p5
-            """
         ############################ Loc & Mask layer ##################################
         with tf.variable_scope('heads'):
             # during training, each templar/search image have the same shape. [1, 256, 31, 31] from C4

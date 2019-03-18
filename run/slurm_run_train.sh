@@ -2,8 +2,8 @@
 #SBATCH --job-name=insane_fast_train_gpu4_b128
 #SBATCH --nodes=1
 #SBATCH --cpus=8
-#SBATCH --mem=100GB
-#SBATCH --gres=gpu:p6000:2
+#SBATCH --mem=64GB
+#SBATCH --gres=gpu:titanxpascal:2
 #SBATCH --gres-flags=enforce-binding
 #SBATCH --time=3-12:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL,REQUEUE,TIME_LIMIT,TIME_LIMIT_50, TIME_LIMIT_90

@@ -614,7 +614,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=10000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=8000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs

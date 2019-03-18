@@ -84,8 +84,8 @@ def average_grads(tower_grads):
 def apply_lr(grads_vars, global_step, iters_per_ep):
 
     new_grads_vars = []
-    boundary = [iters_per_ep*2, iters_per_ep*5]
-    vals = [0.0, 0.1, 1.0]
+    boundary = [iters_per_ep, iters_per_ep*5]
+    vals = [0, 0.1, 1.0]
     grad_decay = tf.train.piecewise_constant(global_step, boundary, vals)
     for var in grads_vars:
         var_name = str(var[1].name).split(':')[0]
