@@ -35,8 +35,7 @@ The tfrecord files must provide the following contents, each example have:
 
 Pre-processing of training pairs for bbox tracking:
 *********************************** Templar image ****************************************
-* Get tight bbox, randomly shift +-8 pixels
-* Pad image to [2500, 2500] with mean RGB values
+* Get tight bbox
 * Crop to 256x256:
     * get tight bbox [w, h]
     * compute context margin p = (w+h)/4
@@ -48,13 +47,13 @@ Pre-processing of training pairs for bbox tracking:
 *********************************** Search image ****************************************
 * Get tight bbox of the corresponding object in templar image
 * Randomly rescale in range(s*0.8, s*1.2), and update bbox position; [s] is computed during pre-process templar image
-* Pad image to [2500, 2500] with mean RGB values
-* Set bbox as the center and crop the image to [256, 256] so that search target is centered in the image
+* Put bbox in the center, randomly shift bbox +-64 away from center and get new center
+* crop the image to [256, 256] so that shifted search target is centered in the image
 
 
 *********************************** Loc GT ****************************************
-* Make a zeros mask [256, 256], tf.int32
-* Set central [16, 16] pixels to one
+* Make a zeros mask [17, 17], tf.int32
+* Set the pixels to ones where the target is located, radius <= 16 is considered as positive
 * Make balanced weight mask for the GT
 
 
