@@ -425,19 +425,11 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
         scale_s = tf.debugging.assert_all_finite(t=scale_s, msg='scale factor not a number!')
         croped_templar = tf.image.resize_bilinear(images=tf.expand_dims(croped_templar, axis=0), size=[127, 127])
         croped_templar = tf.squeeze(croped_templar, axis=0) # [h, w, 3]
-    # pad boundary to [255, 255], update tight bbox
-    croped_templar = croped_templar - tf.cast(mean_rgb, tf.float32)
-    templar_final, _, _ = image_pad(image=croped_templar, pad_value=0, out_size=255)
-    templar_final = templar_final + tf.cast(mean_rgb, tf.float32)
-    tight_temp_bbox[0] = tight_temp_bbox[0] + 64
-    tight_temp_bbox[1] = tight_temp_bbox[1] + 64
-    tight_temp_bbox[2] = tight_temp_bbox[2] + 64
-    tight_temp_bbox[3] = tight_temp_bbox[3] + 64
     # check size
-    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(templar_final)[0], 255),
-                                  tf.debugging.assert_equal(tf.shape(templar_final)[1], 255),
-                                  tf.debugging.assert_equal(tf.shape(templar_final)[2], 3)]):
-        templar_final = tf.identity(templar_final)
+    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(croped_templar)[0], 127),
+                                  tf.debugging.assert_equal(tf.shape(croped_templar)[1], 127),
+                                  tf.debugging.assert_equal(tf.shape(croped_templar)[2], 3)]):
+        templar_final = tf.identity(croped_templar)
 
     ######################################## Process Search image #############################################
     # Get rgb mean
@@ -530,13 +522,11 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     ################################### Randomly flip templar/search images ####################################
     flip_v = tf.random.uniform(shape=[]) # scalar
     flip_v = tf.greater_equal(flip_v, 0.5)
-    stacked = tf.stack(values=[templar_final, search_final], axis=0) # [2, 255, 255, 3]
-    stacked = tf.cond(flip_v, lambda : tf.image.flip_left_right(image=stacked), lambda :stacked)
+    templar_final = tf.cond(flip_v, lambda : tf.image.flip_left_right(image=templar_final), lambda :templar_final)
+    search_final = tf.cond(flip_v, lambda: tf.image.flip_left_right(image=search_final), lambda: search_final)
     score = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score), lambda :score)
     score_weight = tf.cond(flip_v, lambda :tf.image.flip_left_right(image=score_weight), lambda :score_weight)
     tight_search_bbox = tf.cond(flip_v, lambda :flip_bbox(tight_search_bbox, 255), lambda :tight_search_bbox)
-    templar_final = tf.squeeze(stacked[0:1, :,:,:])
-    search_final = tf.squeeze(stacked[1:2, :,:,:])
 
     templar_final = mean_image_subtraction(templar_final, _CHANNEL_MEANS, num_channels)
     search_final = mean_image_subtraction(search_final, _CHANNEL_MEANS, num_channels)
@@ -613,7 +603,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=8000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=3000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs

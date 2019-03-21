@@ -11,13 +11,13 @@ from . import nn
 import sys
 
 
-class ResNet():
+class ResNetSiam():
     def __init__(self, params):
 
         self.data_format_ = params.get('data_format', 'channels_first')
-        self.batch_ = params.get('batch', 1)
+        self.batch_ = params.get('batch', 8)
         self.l2_weight_ = params.get('l2_weight', 0.0001)
-        self.init_lr_ = params.get('init_lr', 0.01)
+        self.init_lr_ = params.get('init_lr', 0.001)
         self.init_filters_ = params.get('init_filters', 64)
         self.init_kernel_size_ = params.get('init_kernel_size', 7)
         self.init_conv_stride_ = params.get('init_conv_stride', 2)
@@ -116,22 +116,92 @@ class ResNet():
 
         return feat_map
 
-    def build_model(self, inputs, training):
+    def build_templar(self, input_z, training, reuse=False):
         '''
-        :param inputs:
-            templar images: [0:batch/2, c, h, w]
-            search images: [batch/2:batch, c, h, w]
-        :training: boolean
-        :return: output of network
+        :param input_z: [batch, 3, 127, 127]
+        :param training: boolean
+        :param reuse: boolean
+        :return: [15, 15, 256, batch]
         '''
 
-        # the backbone
-        stage_out = [] # outputs of c2 ~ c5
-        pyramid_inter = [] # intermediate pyramid outputs
-        pyramid_out = [] # outputs of p2 ~ p5
-        with tf.variable_scope('backbone'):
+        # build backbone
+        z_feat = self.build_model(input=input_z, training=training, reuse=reuse)
+        # build templar exclusive branch
+        with tf.variable_scope('temp_adjust'):
+            z_adjust = nn.conv_layer(inputs=z_feat, filters=[1024, 256], kernel_size=1,
+                                     stride=1, l2_decay=self.l2_weight_, training=training,
+                                     data_format=self.data_format_, pad='SAME', dilate_rate=1)
+            bias_z = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                             training=training)
+            print('Create {0}, {1}'.format(bias_z.name, [256]))
+            z_adjust = tf.nn.bias_add(value=z_adjust, bias=bias_z,
+                                      data_format='NCHW')  # [batch, 256, 15, 15]
+            z_feat = tf.transpose(z_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, batch]
+
+        return z_feat
+
+    def build_search(self, input_x, training, reuse=False):
+        '''
+        :param input_x:  [batch, 3, 255, 255]
+        :param training: boolean
+        :param reuse: boolean
+        :return: [batch, 256, 31, 31]
+        '''
+
+        # build backbone, reuse vars
+        x_feat = self.build_model(input=input_x, training=training, reuse=reuse)
+        # build search exclusive branch
+        with tf.variable_scope('search_adjust'):
+            x_adjust = nn.conv_layer(inputs=x_feat, filters=[1024, 256], kernel_size=1,
+                                     stride=1, l2_decay=self.l2_weight_, training=training,
+                                     data_format=self.data_format_, pad='SAME', dilate_rate=1)
+            bias_x = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+                                             training=training)
+            print('Create {0}, {1}'.format(bias_x.name, [256]))
+            x_feat = tf.nn.bias_add(value=x_adjust, bias=bias_x, data_format='NCHW')  # [batch, 256, 31, 31]
+
+        return x_feat
+
+    def build_CC(self, z_feat, x_feat, training):
+        '''
+        :param z_feat:  [15, 15, 256, batch]
+        :param x_feat:  [batch, 256, 31, 31]
+        :return: [batch, 1, 17, 17]
+        '''
+
+        # do cross-correlations, batch conv operations
+        with tf.variable_scope('cc_layer'):
+            score_maps = []
+            for batch_i in range(int(self.batch_)):
+                input_feat = x_feat[batch_i:batch_i + 1, :, :, :]  # [1, 256, 31, 31]
+                input_filter = z_feat[:, :, :, batch_i:batch_i + 1]  # [15, 15, 256, 1]
+                score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1, 1, 1, 1], padding='VALID',
+                                         use_cudnn_on_gpu=True, data_format='NCHW')  # [1, 1, 17, 17]
+                score_maps.append(score_map)
+            final_scores = tf.concat(axis=0, values=score_maps)  # [batch, 1, 17, 17]
+            cc_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
+                                                 training=training)  # [1]
+            print('Create {0}, {1}'.format(cc_bias.name, [1]))
+            cc_scores = tf.nn.bias_add(value=final_scores, bias=cc_bias,
+                                       data_format='NCHW')  # [batch, 1, 17, 17]
+        print('Cross correlation layers built.')
+
+        return cc_scores
+
+    def build_model(self, input, training, reuse=False):
+        '''
+        Build Siamese model: build two identical models on the same device and share variables
+        :param input [batch, 3, 127, 127] or [batch, 3, 255, 255]
+        :param training: boolean
+        :param reuse: boolean
+        :return: output of network as [batch, 1024, 15, 15] or [batch, 1024, 31, 31]
+        '''
+
+        # the templar branch
+        stage_out = [] # outputs of c2 ~ c4
+        with tf.variable_scope('backbone', reuse=reuse):
             ############################ initial conv 7x7, down-sample 4x ##################################
-            inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
+            inputs = nn.conv_layer(inputs=input, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
                                    stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
                                    data_format=self.data_format_, pad='VALID', dilate_rate=1)
             # down-sample again by pooling
@@ -147,94 +217,12 @@ class ResNet():
                                    training=training)
                 inputs = tf.identity(inputs, name='C%d_out'%stage_id)
                 stage_out.append(inputs)
-
-        ############################ Loc & Mask layer ##################################
-        with tf.variable_scope('heads'):
-            # during training, each templar/search image have the same shape. [1, 256, 31, 31] from C4
-            # the batch_size = num_train_pairs x 2, [num_pair x 2, 256, 31, 31]
-            # templars are [0 : batch_size/2, 256, 31, 31], search images are [batch_size/2 : batch_size, 256, 31, 31]
-
-            ################################## cross-correlation branch #################################
-            # BN + relu first
-            head_out = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+            # BN + relu
+            out_feat = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
                                 data_format=self.data_format_)
-            head_out = tf.nn.relu(head_out)
-            # central crop the templar features to 32x32, and make a set of filters from them
-            templar_feat = head_out[0:int(self.batch_/2),:,:,:] # get templar feature maps
-            templar_feat = tf.transpose(templar_feat, [0,2,3,1]) # to [n, h, w, c]
-            templar_feat = tf.image.crop_to_bounding_box(image=templar_feat, offset_height=8, offset_width=8,
-                                                         target_height=15, target_width=15)  # [batch/2, 31, 31, 256] -> [batch/2, 15, 15, 256]
-            templar_feat = tf.transpose(templar_feat, [0, 3, 1, 2]) # [n, c, h, w]
-            with tf.variable_scope('temp_adjust'):
-                templar_adjust = nn.conv_layer(inputs=templar_feat, filters=[1024, 256], kernel_size=1,
-                                               stride=1, l2_decay=self.l2_weight_, training=training,
-                                               data_format=self.data_format_, pad='SAME', dilate_rate=1)
-                bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                              training=training)  # [256]
-                print('Create {0}, {1}'.format(bias_temp.name, [256]))
-                templar_adjust = tf.nn.bias_add(value=templar_adjust, bias=bias_temp,data_format='NCHW') # [16*batch/2, 256, 15, 15]
-                templar_adjust = tf.transpose(templar_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, batch/2]
-            # extract search image feature maps from C5
-            search_feat = head_out[int(self.batch_/2):self.batch_,:,:,:] # [batch/2, 256, 31, 31]
-            with tf.variable_scope('search_adjust'):
-                search_adjust = nn.conv_layer(inputs=search_feat, filters=[1024, 256], kernel_size=1,
-                                               stride=1, l2_decay=self.l2_weight_, training=training,
-                                               data_format=self.data_format_, pad='SAME', dilate_rate=1)
-                bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                                    training=training)  # [256]
-                print('Create {0}, {1}'.format(bias_search.name, [256]))
-                search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search, data_format='NCHW') # [16*batch/2, 256, 31, 31]
-            # do cross-correlations, batch/2 conv operations
-            score_maps = []
-            for batch_i in range(int(self.batch_/2)):
-                input_feat = search_adjust[batch_i:batch_i+1, :, :, :] # [1, 256, 31, 31]
-                input_filter = templar_adjust[:, :, :, batch_i:batch_i+1] # [15, 15, 256, 1]
-                score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1,1,1,1], padding='VALID',
-                           use_cudnn_on_gpu=True, data_format='NCHW') # [1, 1, 17, 17]
-                score_maps.append(score_map)
-            final_scores = tf.concat(axis=0, values=score_maps) # [batch/2, 1, 17, 17]
-            with tf.variable_scope('final_bias'):
-                final_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
-                                                      training=training)  # [1]
-                print('Create {0}, {1}'.format(final_bias.name, [1]))
-                final_scores = tf.nn.bias_add(value=final_scores, bias=final_bias,
-                                               data_format='NCHW')  # [batch/2, 1, 17, 17]
-            print('Cross correlation layers built.')
+            out_feat = tf.nn.relu(out_feat)
 
-            ################################## mask-propagte branch #################################
-            # TODO: take the templar's mask, provided from data pipeline
-            #templar_masks = 0 # [batch/2, 1, 32, 32]
-            #search_crops = [] # [batch/2, 16, 2]: batch/2 pairs, each pair has 16 crops, each crop has [h,w]
-            # crop feature maps from search feature maps, coordinates provided from data pipeline
-            # reuse the var above: templar_feat [32, 32, 256, batch/2], search_feat [batch/2, 256, 64, 64]
-            #concatenated_features = []
-            #for batch_i in range(int(self.batch_/2)):
-            #    batch_i_search_feat = search_feat[batch_i:batch_i+1, :, :, :] # [1, 256, 64, 64]
-            #    batch_i_templar_feat = templar_feat[:, :, :, batch_i:batch_i+1] # [32, 32, 256, 1]
-            #    batch_i_templar_mask = templar_masks[batch_i:batch_i+1, :, :, :] # [1, 1, 32, 32]
-            #    batch_i_fuses = []
-            #    for crop_i in range(16):
-            #        crop_i_coord = search_crops[batch_i, crop_i, :] # [h, w]
-            #        cropped_feat = batch_i_search_feat[:, :, crop_i_coord[0]:crop_i_coord[0]+32, crop_i_coord[1]:crop_i_coord[1]+32] # [1, 256, 32, 32]
-                    # stack them
-            #        stack_crop_i = tf.concat(axis=0, values=[tf.transpose(batch_i_templar_feat, [3, 2, 0, 1]),
-            #                                                 batch_i_templar_mask, cropped_feat]) # [1, 513, 32, 32]
-            #        batch_i_fuses.append(stack_crop_i)
-                # stack for this batch_i
-            #    batch_i_fuses = tf.concat(axis=0, values=batch_i_fuses) # [16, 513, 32, 32]
-                # save for this batch_i
-            #    concatenated_features.append(batch_i_fuses)
-            # stack for all batches
-            #concatenated_features = tf.concat(axis=0, values=concatenated_features) # [16*batch/2, 513, 32, 32]
-
-            # feed to mask propagation convs
-            #with tf.variable_scope('mask_prop'):
-            #    mask_out = nn.mask_prop_layer(inputs=concatenated_features, training=training, l2_decay=self.l2_weight_,
-            #                                  momentum=self.bn_momentum_, epsilon=self.bn_epsilon_, data_format=self.data_format_)
-                # mask_out has shape [16 * batch/2, 2, 32, 32]
-
-        return final_scores
-        #return final_scores, mask_out
+        return out_feat
 
     def loss_score(self, score_map, score_gt, score_weight, scope):
         '''
@@ -259,14 +247,14 @@ class ResNet():
         neg_score_gt = score_gt - 1.0
         final_score_gt = score_gt + neg_score_gt
 
-        # use loss from paper
-        #a = -tf.multiply(score_map, final_score_gt)
-        #b = tf.nn.relu(a)
-        #loss = b+tf.log(tf.exp(-b)+tf.exp(a-b))
-        #score_loss = tf.reduce_mean(tf.multiply(score_weight, loss))
+        # use logistic loss from paper
+        a = -tf.multiply(score_map, final_score_gt)
+        b = tf.nn.relu(a)
+        loss = b+tf.log(tf.exp(-b)+tf.exp(a-b))
+        score_loss = tf.reduce_mean(tf.multiply(score_weight, loss))
 
         # use balanced cross-entropy on score maps
-        score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
+        #score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
         tf.summary.scalar(name='%s_score' % scope, tensor=score_loss)
 
         ########################## total loss ##############################

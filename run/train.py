@@ -20,9 +20,9 @@ import time
 
 _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
-_NUM_GPU = 2
+_NUM_GPU = 1
 _NUM_SHARDS = 4000 # number of tfrecords
-_BATCH_SIZE = 32 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
+_BATCH_SIZE = 16 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
 _PAIRS_PER_EP = 50000*4 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 45
@@ -30,9 +30,9 @@ _WARMUP_EP = 5 # number of epochs for warm up
 _BN_MOMENTUM = 0.997 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5
 
-_OPTIMIZER = 'adam' # can be one of the following: 'adam', 'momentum'
+_OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
-    _INIT_LR = 1e-5
+    _INIT_LR = 2e-3
 elif _OPTIMIZER == 'momentum':
     _INIT_LR = 2e-3
 else:
@@ -41,15 +41,14 @@ else:
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_adam/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
-_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_adam' # '/work/wangyu/imgnet-vid/tfboard/' #
-_SAVE_CHECKPOINT_EP = 1 # 6.25k if batch=64, 3.125k if batch=128
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
+_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/'
+_SAVE_CHECKPOINT_EP = 1
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
 # determine number of iterations
-# iters_per_epoch = int(_NUM_TRAIN / _BATCH_SIZE) + 1
 iters_per_epoch = int(_PAIRS_PER_EP / _BATCH_SIZE) # 6250 iters/ep for batch=64, 3125 if batch=128
 iters_warmup= _WARMUP_EP * iters_per_epoch
 iters_total = (_EPOCHS + _WARMUP_EP) * iters_per_epoch
@@ -88,10 +87,10 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
 
     # common model attributes for all GPUs
     model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
-                    'batch': _BATCH_PER_GPU * 2, # num_img (templar+search) = batch * 2
+                    'batch': _BATCH_PER_GPU, # each batch actually has batch*2 images
                     'bn_momentum': _BN_MOMENTUM,
                     'bn_epsilon': _BN_EPSILON,
-                    'l2_weight': 0.0001}
+                    'l2_weight': 0.0002}
 
     #######################################################################
     # Build model on multiple GPUs
@@ -102,13 +101,14 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                 with tf.name_scope('%s_%d' % ('tower', gpu_id)) as scope:  # operation scope for each gpu
                     # build model
                     print('Building model on GPU {}'.format(gpu_id))
-                    model = resnet.ResNet(model_params)
-                    # stack templar and search images
-                    # inputs all have dim [256, 256]
-                    in_img_batch = tf.concat(values=[next_element_gpus[gpu_id]['templar'],
-                                                     next_element_gpus[gpu_id]['search']],
-                                             axis=0)
-                    score_logits = model.build_model(inputs=in_img_batch, training=_TRAINING) # [batch/2=pairs, 1, 33, 33]
+                    model = resnet.ResNetSiam(model_params)
+                    z_input = next_element_gpus[gpu_id]['templar'] # [batch, 3, 127, 127]
+                    x_input = next_element_gpus[gpu_id]['search'] # [batch, 3, 255, 255]
+                    reuse = False if gpu_id == 0 else True # reuse is false if first build the backbone
+                    z_feat = model.build_templar(input_z=z_input, training=_TRAINING, reuse=reuse)
+                    # reuse is always True
+                    x_feat = model.build_search(input_x=x_input, training=_TRAINING, reuse=True)
+                    score_logits = model.build_CC(z_feat=z_feat, x_feat=x_feat, training=_TRAINING) # [batch, 1, 17, 17]
                     ################# image summaries #################
                     templar_sum = draw_bbox_templar(templars=next_element_gpus[gpu_id]['templar'],
                                                     bbox_templars=next_element_gpus[gpu_id]['tight_temp_bbox'],
@@ -117,18 +117,16 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     search_sum = draw_bbox_search(searchs=next_element_gpus[gpu_id]['search'],
                                                   bbox_searchs=next_element_gpus[gpu_id]['tight_search_bbox'],
                                                   batch=_BATCH_PER_GPU)
-                    tf.summary.image(name='search',
-                                     tensor=search_sum)
-                    tf.summary.image(name='score',
-                                     tensor=tf.transpose(tf.cast(next_element_gpus[gpu_id]['score'], tf.uint8) * 255, [0,2,3,1]))
-                    tf.summary.image(name='logits',
-                                     tensor=tf.transpose(score_logits, [0,2,3,1]))
+                    tf.summary.image(name='search', tensor=search_sum)
+                    tf.summary.image(name='score', tensor=tf.transpose(tf.cast(next_element_gpus[gpu_id]['score'], tf.uint8) * 255, [0,2,3,1]))
+                    tf.summary.image(name='logits', tensor=tf.transpose(score_logits, [0,2,3,1]))
+                    # get loss
                     loss = model.loss_score(score_map=score_logits, score_gt=next_element_gpus[gpu_id]['score'],
                                             score_weight=next_element_gpus[gpu_id]['score_weight'], scope=scope)
                     tower_loss.append(tf.expand_dims(loss, 0))
                     print('Model built on tower_{}'.format(gpu_id))
 
-                    # reuse vars for the next tower
+                    # reuse all vars for the next tower
                     tf.get_variable_scope().reuse_variables()
 
                     # compute grads on the current tower, and save them
@@ -148,8 +146,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         tf.summary.scalar(name='learning_rate', tensor=lr)
 
     # apply gradients, BN moving stats dependency is handled inside the BN layer
-    #grads_and_vars = optimizer.apply_lr(grads_and_vars, global_step, iters_per_epoch)
-    #grads_and_vars = [(tf.clip_by_value(grad, -1.0, 1.0), var) for grad, var in grads_and_vars]
+    grads_and_vars = optimizer.apply_lr(grads_and_vars, global_step, iters_per_epoch)
     update_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # saver, summary, init
@@ -181,7 +178,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         print('Number of iterations per epoch: {}'.format(iters_per_epoch))
         print('Batch size: {}'.format(_BATCH_SIZE))
         print('Batch size per GPU: {}'.format(_BATCH_PER_GPU))
-        if optimizer == 'adam':
+        if _OPTIMIZER == 'adam':
             print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr))
         else:
             print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr.eval()))
@@ -191,9 +188,6 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         for ep_i in range(_EPOCHS + _WARMUP_EP): # in total 80 ep
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
-                # print('iter: {}'.format(iter_i))
-                # summary_out = sess.run(summary_op)
-                # sum_writer.add_summary(summary_out, iter_i)
                 _, loss_v = sess.run([update_op, avg_loss])
 
                 # print loss

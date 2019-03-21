@@ -136,7 +136,7 @@ class Tracker():
 
         with tf.variable_scope('heads'):
             with tf.variable_scope('temp_adjust'):
-                templar_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
+                templar_adjust = nn.conv_layer(inputs=in_tensor, filters=[1024, 256], kernel_size=1,
                                                stride=1, l2_decay=0.0002, training=False,
                                                data_format='channels_first', pad='SAME', dilate_rate=1)
                 bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
@@ -155,7 +155,7 @@ class Tracker():
         '''
         with tf.variable_scope('heads'):
             with tf.variable_scope('search_adjust'):
-                search_adjust = nn.conv_layer(inputs=in_tensor, filters=[2048, 256], kernel_size=1,
+                search_adjust = nn.conv_layer(inputs=in_tensor, filters=[1024, 256], kernel_size=1,
                                               stride=1, l2_decay=0.0002, training=False,
                                               data_format='channels_first', pad='SAME', dilate_rate=1)
                 bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
