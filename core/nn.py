@@ -303,7 +303,7 @@ def mask_prop_layer(inputs, training, l2_decay, momentum, epsilon, data_format):
     return outputs
 
 
-def batch_norm(inputs, training, momentum, epsilon, data_format):
+def batch_norm(inputs, training, momentum, epsilon, data_format, in_num_filters=0):
     '''
     :param inputs: input tensor
     :param training: boolean
@@ -316,13 +316,16 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
     if data_format is not 'channels_first':
         print('Data format not channels_first in BN')
         sys.exit(-1)
-    num_filters = inputs.get_shape().as_list()[1]
+    if in_num_filters != 0:
+        num_filters = in_num_filters
+    else:
+        num_filters = inputs.get_shape().as_list()[1]
     new_shape = [1, num_filters, 1, 1]
 
     if not training:
         ###############################  Single/Multi GPU Impl. are the same during inference ##########################
         # during inference, we use final moving_mean, moving_var (which MUST be initialised from checkpoint)
-        moving_mean = get_var_cpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
+        moving_mean = get_var_cpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(0),
                                            training=False)
         print('Create {0}, {1}'.format(re.sub(':0', '', moving_mean.name), [num_filters]))
         moving_mean = tf.reshape(moving_mean, new_shape) # tf.nn.batch_normalization() requires full shape
@@ -353,7 +356,7 @@ def batch_norm(inputs, training, momentum, epsilon, data_format):
 
         # if in tower_0, construct moving_mean, moving_variance only on GPU_0
         if tower_context.find('tower_0') != -1:
-            moving_mean = get_var_gpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(),
+            moving_mean = get_var_gpu_no_decay(name='moving_mean', shape=[num_filters], initializer=tf.constant_initializer(0),
                                                training=False)
             print('Create {0}, {1}'.format(re.sub(':0', '', moving_mean.name), [num_filters]))
             moving_variance = get_var_gpu_no_decay(name='moving_variance', shape=[num_filters], initializer=tf.constant_initializer(1),
@@ -458,19 +461,19 @@ def get_siamfc_vars(trainable=False):
 
     # get backbone of ResNet50v2
     var_dict = get_resnet50v2_backbone_vars()
-    with tf.variable_scope('heads', reuse=True):
-        var_dict['heads/beta'] = tf.get_variable('beta', trainable=trainable)
-        var_dict['heads/gamma'] = tf.get_variable('gamma', trainable=trainable)
-        var_dict['heads/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
-        var_dict['heads/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
-    with tf.variable_scope('heads/temp_adjust', reuse=True):
-        var_dict['heads/temp_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
-        var_dict['heads/temp_adjust/bias'] = tf.get_variable('bias', trainable=trainable)
-    with tf.variable_scope('heads/search_adjust', reuse=True):
-        var_dict['heads/search_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
-        var_dict['heads/search_adjust/bias'] = tf.get_variable('bias', trainable=trainable)
-    with tf.variable_scope('heads/final_bias', reuse=True):
-        var_dict['heads/final_bias/bias'] = tf.get_variable('bias', trainable=trainable)
+    with tf.variable_scope('temp_adjust', reuse=True):
+        var_dict['temp_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('search_adjust', reuse=True):
+        var_dict['search_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
+    with tf.variable_scope('cc_layer', reuse=True):
+        var_dict['cc_layer/beta'] = tf.get_variable('beta', trainable=trainable)
+        var_dict['cc_layer/gamma'] = tf.get_variable('gamma', trainable=trainable)
+        var_dict['cc_layer/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
+        var_dict['cc_layer/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
+        with tf.variable_scope('conv5', reuse=True):
+            var_dict['cc_layer/conv5/kernel'] = tf.get_variable('kernel', trainable=trainable)
+        with tf.variable_scope('conv6', reuse=True):
+            var_dict['cc_layer/conv6/kernel'] = tf.get_variable('kernel', trainable=trainable)
 
     return var_dict
 

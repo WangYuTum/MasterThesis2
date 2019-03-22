@@ -52,27 +52,23 @@ class Tracker():
 
 
         # build a network that takes input as image(s), and outputs feature map(s)
-        def return_temp(): return templar_imgs
-        def return_search(): return search_imgs
-        siam_input = tf.cond(self._in_is_templar, return_temp, return_search)
-        siam_model = resnet.ResNet(params={})
-        # input is [n, 127, 127, 3] if templars, or [n, 255, 255, 3] if searchs
-        siam_input = tf.transpose(siam_input, [0, 3, 1, 2]) # to [n,c,h,w]
-        siam_out = siam_model.build_inf_model(inputs=siam_input) # output [n, 256, 15, 15] or [n, 256, 31, 31]
-        siam_out = tf.cond(self._in_is_templar, lambda : self.build_templar_branch(siam_out), lambda : self.build_search_branch(siam_out))
+        siam_model = resnet.ResNetSiam(params={'batch': 1})
+        templar_imgs = tf.transpose(templar_imgs, [0, 3, 1, 2])
+        search_imgs = tf.transpose(search_imgs, [0, 3, 1, 2])
+        z_feat = siam_model.build_templar(input_z=templar_imgs, training=False, reuse=False) # [15, 15, 256, batch]
+        x_feat = siam_model.build_search(input_x=search_imgs, training=False, reuse=True) # [batch, 256, 31, 31]
 
         # build op to get templar kernels, this op will only be executed once for each video during init
-        templar_kernels = self.get_templar_kernels(siam_out) # [15, 15, 256, n]
         self._templar_kernels = tf.get_variable(name='templar_kernels', trainable=False,
                                                 initializer=tf.zeros_initializer(),
-                                                shape=[15,15,256,self._num_templars]) # [15, 15, 256, n]
-        self._assign_templar_kernels = tf.assign(self._templar_kernels, templar_kernels) # [15, 15, 256, n]
-
-        # build op to get search feature maps
-        search_maps = self.get_search_maps(siam_out) # [n, 256, 31, 31]
+                                                shape=[15,15,256,self._num_templars]) # [15, 15, 256, batch]
+        self._assign_templar_kernels = tf.assign(self._templar_kernels, z_feat)  # [15, 15, 256, batch]
 
         # build op to compute cc response maps, take inputs as templar kernels, search_maps
-        self._response_maps = self.compute_response(self._templar_kernels, search_maps) # outputs [n, 17, 17, 1] response map
+        self._response_maps = siam_model.build_CC(z_feat=self._templar_kernels, x_feat=x_feat, training=False) # outputs [batch, 1, 17, 17]
+        self._response_maps = tf.transpose(self._response_maps, [0, 2, 3, 1])  # [batch, 17, 17, 1]
+        tf.summary.image(name='score_map', tensor=self._response_maps)
+        self._response_maps = tf.sigmoid(self._response_maps)  # [batch, 17, 17, 1], probability maps
         self._response_maps = self.upsample_response(self._response_maps) # outputs [n, 17*scale, 17*scale, 1] response map
         self._sum_op = tf.summary.merge_all()
         init_op = tf.global_variables_initializer()
@@ -97,74 +93,6 @@ class Tracker():
         saver_siamfc.restore(sess=self._sess, save_path=chkp)
         print('All variables initialized.')
         print('Init run session done.')
-
-
-    def compute_response(self, templar_kernels, search_maps):
-        '''
-        :param templar_kernels: [15, 15, 256, n]
-        :param search_maps: [n, 256, 31, 31]
-        :return: [n, 17, 17, 1] response maps for n templars
-        '''
-
-        score_maps = []
-        for i in range(self._num_templars):
-            input_feat = search_maps[i:i + 1, :, :, :]  # [1, 256, 31, 31]
-            input_filter = templar_kernels[:, :, :, i:i + 1]  # [15, 15, 256, 1]
-            score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1, 1, 1, 1], padding='VALID',
-                                     use_cudnn_on_gpu=True, data_format='NCHW')  # [1, 1, 17, 17]
-            score_maps.append(score_map)
-        final_scores = tf.concat(axis=0, values=score_maps)  # [num_templars, 1, 17, 17]
-        with tf.variable_scope('heads'):
-            with tf.variable_scope('final_bias'):
-                final_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
-                                                     training=False)  # [1]
-                print('Create {0}, {1}'.format(final_bias.name, [1]))
-                final_scores = tf.nn.bias_add(value=final_scores, bias=final_bias,
-                                              data_format='NCHW')  # [num_templars, 1, 17, 17]
-                print('Cross correlation layers built.')
-        final_scores = tf.transpose(final_scores, [0,2,3,1]) # [num_templars, 17, 17, 1]
-        tf.summary.image(name='score_map', tensor=final_scores)
-        response_maps = tf.sigmoid(final_scores) # [num_templars, 17, 17, 1], probability maps
-
-        return response_maps
-
-    def build_templar_branch(self, in_tensor):
-        '''
-        :param in_tensor: [n, c, h, w]
-        :return: [n, c, h, w]
-        '''
-
-        with tf.variable_scope('heads'):
-            with tf.variable_scope('temp_adjust'):
-                templar_adjust = nn.conv_layer(inputs=in_tensor, filters=[1024, 256], kernel_size=1,
-                                               stride=1, l2_decay=0.0002, training=False,
-                                               data_format='channels_first', pad='SAME', dilate_rate=1)
-                bias_temp = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                                    training=False)  # [256]
-                print('Create {0}, {1}'.format(bias_temp.name, [256]))
-                templar_adjust = tf.nn.bias_add(value=templar_adjust, bias=bias_temp,
-                                                data_format='NCHW')  # [n, 256, 15, 15]
-                templar_adjust = tf.transpose(templar_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, n]
-
-        return templar_adjust
-
-    def build_search_branch(self, in_tensor):
-        '''
-        :param in_tensor: [n, c, h, w]
-        :return: [n, c, h, w]
-        '''
-        with tf.variable_scope('heads'):
-            with tf.variable_scope('search_adjust'):
-                search_adjust = nn.conv_layer(inputs=in_tensor, filters=[1024, 256], kernel_size=1,
-                                              stride=1, l2_decay=0.0002, training=False,
-                                              data_format='channels_first', pad='SAME', dilate_rate=1)
-                bias_search = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                                      training=False)  # [256]
-                print('Create {0}, {1}'.format(bias_search.name, [256]))
-                search_adjust = tf.nn.bias_add(value=search_adjust, bias=bias_search,
-                                               data_format='NCHW')  # [n, 256, 31, 31]
-
-        return search_adjust
 
     def init_tracker(self, init_img, init_bbox):
         '''
@@ -238,23 +166,6 @@ class Tracker():
             tracked_bbox.append(self._pre_locations[i])
 
         return tracked_bbox, response, sum_op_
-
-    def get_templar_kernels(self, siam_out):
-        '''
-        :param siam_out: [15, 15, 256, n]
-        :return: [15, 15, 256, n] as n kernels for n templars
-        '''
-
-        return siam_out
-
-    def get_search_maps(self, siam_out):
-        '''
-        :param siam_out: [n, 256, 64, 64]
-        :return:
-        '''
-
-        return siam_out
-
 
     def crop_searches(self, img, search_bbox):
         '''

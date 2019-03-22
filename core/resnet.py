@@ -76,46 +76,6 @@ class ResNetSiam():
 
         return inputs
 
-    def build_inf_model(self, inputs):
-        '''
-        :param inputs: [n, 3, h, w]
-        :return: [n, 256, h/4, w/4] feature map
-        '''
-
-        training = False
-        # the backbone
-        stage_out = [] # outputs of c2 ~ c5
-        with tf.variable_scope('backbone'):
-            ############################ initial conv 7x7, down-sample 4x ##################################
-            inputs = nn.conv_layer(inputs=inputs, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
-                                   stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
-                                   data_format=self.data_format_, pad='SAME', dilate_rate=1)
-            # down-sample again by pooling
-            inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
-                                 data_format=self.data_format_, pad='VALID')
-
-            ############################ Resnet stages C2 ~ C4 ##################################
-            for stage_id in range(2, 5):
-                inputs = self.res_stage(inputs=inputs, num_filters=self.num_filters_[stage_id-2],
-                                   stage_num=self.stage_number_[stage_id-2],
-                                   num_blocks=self.num_blocks_[stage_id-2],
-                                   stride=self.res_strides_[stage_id-2],
-                                   training=training)
-                inputs = tf.identity(inputs, name='C%d_out'%stage_id)
-                stage_out.append(inputs)
-
-        ############################ Loc & Mask ##################################
-        with tf.variable_scope('heads'):
-            # during inf, each templar is [n, 256, 15, 15] from C4, search is [n, 256, 31, 31] from C4
-            ################################## cross-correlation branch #################################
-            # BN + relu first
-            head_out = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_,
-                                    epsilon=self.bn_epsilon_,
-                                    data_format=self.data_format_)
-            feat_map = tf.nn.relu(head_out)
-
-        return feat_map
-
     def build_templar(self, input_z, training, reuse=False):
         '''
         :param input_z: [batch, 3, 127, 127]
@@ -131,11 +91,11 @@ class ResNetSiam():
             z_adjust = nn.conv_layer(inputs=z_feat, filters=[1024, 256], kernel_size=1,
                                      stride=1, l2_decay=self.l2_weight_, training=training,
                                      data_format=self.data_format_, pad='SAME', dilate_rate=1)
-            bias_z = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                             training=training)
-            print('Create {0}, {1}'.format(bias_z.name, [256]))
-            z_adjust = tf.nn.bias_add(value=z_adjust, bias=bias_z,
-                                      data_format='NCHW')  # [batch, 256, 15, 15]
+            #bias_z = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+            #                                 training=training)
+            #print('Create {0}, {1}'.format(bias_z.name, [256]))
+            #z_adjust = tf.nn.bias_add(value=z_adjust, bias=bias_z,
+            #                          data_format='NCHW')  # [batch, 256, 15, 15]
             z_feat = tf.transpose(z_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, batch]
 
         return z_feat
@@ -155,10 +115,11 @@ class ResNetSiam():
             x_adjust = nn.conv_layer(inputs=x_feat, filters=[1024, 256], kernel_size=1,
                                      stride=1, l2_decay=self.l2_weight_, training=training,
                                      data_format=self.data_format_, pad='SAME', dilate_rate=1)
-            bias_x = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-                                             training=training)
-            print('Create {0}, {1}'.format(bias_x.name, [256]))
-            x_feat = tf.nn.bias_add(value=x_adjust, bias=bias_x, data_format='NCHW')  # [batch, 256, 31, 31]
+            #bias_x = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
+            #                                 training=training)
+            #print('Create {0}, {1}'.format(bias_x.name, [256]))
+            #x_feat = tf.nn.bias_add(value=x_adjust, bias=bias_x, data_format='NCHW')  # [batch, 256, 31, 31]
+            x_feat = x_adjust
 
         return x_feat
 
@@ -171,22 +132,31 @@ class ResNetSiam():
 
         # do cross-correlations, batch conv operations
         with tf.variable_scope('cc_layer'):
-            score_maps = []
+            cc_feat = []
             for batch_i in range(int(self.batch_)):
                 input_feat = x_feat[batch_i:batch_i + 1, :, :, :]  # [1, 256, 31, 31]
                 input_filter = z_feat[:, :, :, batch_i:batch_i + 1]  # [15, 15, 256, 1]
-                score_map = tf.nn.conv2d(input=input_feat, filter=input_filter, strides=[1, 1, 1, 1], padding='VALID',
-                                         use_cudnn_on_gpu=True, data_format='NCHW')  # [1, 1, 17, 17]
-                score_maps.append(score_map)
-            final_scores = tf.concat(axis=0, values=score_maps)  # [batch, 1, 17, 17]
-            cc_bias = nn.get_var_cpu_no_decay(name='bias', shape=1, initializer=tf.zeros_initializer(),
-                                                 training=training)  # [1]
-            print('Create {0}, {1}'.format(cc_bias.name, [1]))
-            cc_scores = tf.nn.bias_add(value=final_scores, bias=cc_bias,
-                                       data_format='NCHW')  # [batch, 1, 17, 17]
+                depth_cc = tf.nn.depthwise_conv2d(input=input_feat, filter=input_filter, strides=[1, 1, 1, 1],
+                                                  padding='VALID', data_format='NCHW') # [1, 256, 17, 17]
+                cc_feat.append(depth_cc)
+            cc_out = tf.concat(axis=0, values=cc_feat)  # [batch, 256, 17, 17]
+            # conv5 score branch
+            # BN + Relu + conv
+            cc_out = nn.batch_norm(inputs=cc_out, training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+                                     data_format=self.data_format_, in_num_filters=256)
+            cc_out = tf.nn.relu(cc_out)
+            with tf.variable_scope('conv5'):
+                score = nn.conv_layer(inputs=cc_out, filters=[256, 256], kernel_size=1,
+                                      stride=1, l2_decay=self.l2_weight_, training=training,
+                                      data_format=self.data_format_, pad='VALID', dilate_rate=1)
+            # conv6
+            with tf.variable_scope('conv6'):
+                score = nn.conv_layer(inputs=score, filters=[256, 1], kernel_size=1,
+                                      stride=1, l2_decay=self.l2_weight_, training=training,
+                                      data_format=self.data_format_, pad='VALID', dilate_rate=1)
         print('Cross correlation layers built.')
 
-        return cc_scores
+        return score
 
     def build_model(self, input, training, reuse=False):
         '''
@@ -218,9 +188,10 @@ class ResNetSiam():
                 inputs = tf.identity(inputs, name='C%d_out'%stage_id)
                 stage_out.append(inputs)
             # BN + relu
-            out_feat = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
-                                data_format=self.data_format_)
-            out_feat = tf.nn.relu(out_feat)
+            #out_feat = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+            #                    data_format=self.data_format_)
+            #out_feat = tf.nn.relu(out_feat)
+            out_feat = stage_out[2]
 
         return out_feat
 
@@ -251,10 +222,10 @@ class ResNetSiam():
         a = -tf.multiply(score_map, final_score_gt)
         b = tf.nn.relu(a)
         loss = b+tf.log(tf.exp(-b)+tf.exp(a-b))
-        score_loss = tf.reduce_mean(tf.multiply(score_weight, loss))
+        #score_loss = tf.reduce_mean(tf.multiply(score_weight, loss))
 
         # use balanced cross-entropy on score maps
-        #score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
+        score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
         tf.summary.scalar(name='%s_score' % scope, tensor=score_loss)
 
         ########################## total loss ##############################

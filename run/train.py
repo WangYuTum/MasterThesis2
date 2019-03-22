@@ -20,21 +20,21 @@ import time
 
 _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
-_NUM_GPU = 1
+_NUM_GPU = 4
 _NUM_SHARDS = 4000 # number of tfrecords
-_BATCH_SIZE = 16 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
+_BATCH_SIZE = 64 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
 _PAIRS_PER_EP = 50000*4 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 45
 _WARMUP_EP = 5 # number of epochs for warm up
-_BN_MOMENTUM = 0.997 # can be 0.9 for training on large dataset, default=0.997
-_BN_EPSILON = 1e-5
+_BN_MOMENTUM = 0.995 # can be 0.9 for training on large dataset, default=0.997
+_BN_EPSILON = 1e-5 # default 1e-5
 
 _OPTIMIZER = 'momentum' # can be one of the following: 'adam', 'momentum'
 if _OPTIMIZER == 'adam':
     _INIT_LR = 2e-3
 elif _OPTIMIZER == 'momentum':
-    _INIT_LR = 2e-3
+    _INIT_LR = 5e-3
 else:
     _INIT_LR = 0.01
 
@@ -182,7 +182,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
             print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr))
         else:
             print('Optimizer: {}, base_lr: {}, rescaled_lr: {}'.format(_OPTIMIZER, _INIT_LR, lr.eval()))
-        time.sleep(5)
+        time.sleep(3)
 
         # start training
         for ep_i in range(_EPOCHS + _WARMUP_EP): # in total 80 ep
@@ -191,7 +191,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                 _, loss_v = sess.run([update_op, avg_loss])
 
                 # print loss
-                if iter_i % 20 == 0:
+                if iter_i % 50 == 0:
                     print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:

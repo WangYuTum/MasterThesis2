@@ -16,9 +16,9 @@ def lr_scheduler(base_lr, batches_per_epoch, batch_size, global_step, bnorm):
     :return:
     '''
     init_lr = base_lr
-    warmup_lr = init_lr / 5
-    boundary_epochs = [1, 2, 3, 4, 5, 25, 45, 65]
-    decay_rates = [1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 0.5*5.0, 0.25*5.0, 0.05*5.0]
+    warmup_lr = init_lr / 5.0
+    boundary_epochs = [1, 2, 3, 4, 5, 15, 25, 35, 45]
+    decay_rates = [1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 0.5*5.0, 0.25*5.0, 0.125*5.0, 0.0625*5.0]
 
     boundaries = [int(batches_per_epoch * epoch) for epoch in boundary_epochs] # units in iterations
     vals = [warmup_lr * decay for decay in decay_rates]
@@ -85,15 +85,12 @@ def apply_lr(grads_vars, global_step, iters_per_ep):
 
     new_grads_vars = []
     boundary = [iters_per_ep*5]
-    vals = [1e-6, 1.0]
+    vals = [1.0, 1.0]
     grad_decay = tf.train.piecewise_constant(global_step, boundary, vals)
     for var in grads_vars:
         var_name = str(var[1].name).split(':')[0]
         if var_name.find('backbone') != -1: # the backbone
-            if var_name.find('backbone/beta') == -1 or var_name.find('backbone/gamma') == -1: # if not newly created vars
-                grad = grad_decay * var[0]
-            else:
-                grad = var[0]
+            grad = grad_decay * var[0]
         else:
             grad = var[0]
         new_grads_vars.append((grad, var[1]))

@@ -445,7 +445,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     search_img = tf.image.resize_bilinear(images=tf.expand_dims(search_img, axis=0), size=[new_height, new_width])
     search_img = tf.squeeze(search_img, axis=0)  # [h, w, 3]
     ### randomly shift bbox +-64 pixels, get the shift values and new bbox center
-    search_bbox, h_shift, w_shift = distort_bounding_box(input_bbox=search_bbox, random_shift=64)  # new box [xmin, ymin, xmax, ymax], h_shift, w_shift
+    search_bbox, h_shift, w_shift = distort_bounding_box(input_bbox=search_bbox, random_shift=32)  # new box [xmin, ymin, xmax, ymax], h_shift, w_shift
     ### crop around the center of the bbox to [255, 255], if out of boundary, pad with mean rgb value
     img_width = tf.shape(search_img)[1]
     img_height = tf.shape(search_img)[0]
@@ -603,7 +603,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=3000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=8000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs
