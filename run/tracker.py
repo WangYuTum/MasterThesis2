@@ -124,7 +124,7 @@ class Tracker():
         '''
 
 
-    def track(self, init_img, search_img, frame_id):
+    def track(self, init_img, init_box, search_img, frame_id):
         '''
         :param search_img: [1, h, w, 3], pixel values 0-255, need to minus ImageNet rgb mean outside call
         :param frame_id: frame_id to display
@@ -139,7 +139,7 @@ class Tracker():
                                                    self._search_bbox: self._pre_locations,
                                                    self._in_is_templar: False,
                                                    self._templar_img: init_img, # will not be used in this run
-                                                   self._templar_bbox: self._pre_locations}) # will not be used in this run
+                                                   self._templar_bbox: init_box}) # will not be used in this run
         # process each response for each templar and get tracked bbox position
         tracked_bbox = []
         for i in range(self._num_templars):

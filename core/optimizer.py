@@ -18,7 +18,7 @@ def lr_scheduler(base_lr, batches_per_epoch, batch_size, global_step, bnorm):
     init_lr = base_lr
     warmup_lr = init_lr / 5.0
     boundary_epochs = [1, 2, 3, 4, 5, 15, 25, 35, 45]
-    decay_rates = [1.0, 2.0, 3.0, 4.0, 5.0, 5.0, 0.5*5.0, 0.25*5.0, 0.125*5.0, 0.0625*5.0]
+    decay_rates = [1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 0.5*5.0, 0.25*5.0, 0.125*5.0, 0.0625*5.0]
 
     boundaries = [int(batches_per_epoch * epoch) for epoch in boundary_epochs] # units in iterations
     vals = [warmup_lr * decay for decay in decay_rates]
@@ -83,16 +83,21 @@ def average_grads(tower_grads):
 
 def apply_lr(grads_vars, global_step, iters_per_ep):
 
-    new_grads_vars = []
-    boundary = [iters_per_ep*5]
-    vals = [1.0, 1.0]
-    grad_decay = tf.train.piecewise_constant(global_step, boundary, vals)
+    head_vars = []
+    all_vars = []
     for var in grads_vars:
         var_name = str(var[1].name).split(':')[0]
-        if var_name.find('backbone') != -1: # the backbone
-            grad = grad_decay * var[0]
-        else:
-            grad = var[0]
-        new_grads_vars.append((grad, var[1]))
+        if var_name.find('backbone') == -1: # the head vars
+            head_vars.append((var[0], var[1]))
+            all_vars.append((var[0], var[1]))
+        else: # backbone vars
+            all_vars.append((var[0], var[1]))
 
-    return new_grads_vars
+    return head_vars, all_vars
+
+def apply_bn_up(global_step, iters_per_ep):
+
+    head_ops = tf.get_collection('head_stat', scope='tower_0')
+    all_ops = tf.get_collection('all_stat', scope='tower_0')
+
+    return head_ops, all_ops

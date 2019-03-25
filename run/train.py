@@ -20,7 +20,7 @@ import time
 
 _NUM_TRAIN = 4000000 # number of training pairs
 _TRAINING = True
-_NUM_GPU = 4
+_NUM_GPU = 2
 _NUM_SHARDS = 4000 # number of tfrecords
 _BATCH_SIZE = 64 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
 _PAIRS_PER_EP = 50000*4 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
@@ -41,8 +41,8 @@ else:
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE =  '/storage/slurm/wangyu/imagenet15_vid/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
-_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd' # '/work/wangyu/imgnet-vid/tfboard/'
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd3/imgnetvid_4gpu.ckpt' # '/work/wangyu/imgnet-vid/chkp/imgnetvid_4gpu_sgd/imgnetvid_4gpu.ckpt' #
+_SAVE_SUM = '/storage/slurm/wangyu/imagenet15_vid/tfboard/imgnetvid_train_4gpu_sgd3' # '/work/wangyu/imgnet-vid/tfboard/'
 _SAVE_CHECKPOINT_EP = 1
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
@@ -145,13 +145,18 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     if _OPTIMIZER == 'momentum':
         tf.summary.scalar(name='learning_rate', tensor=lr)
 
-    # apply gradients, BN moving stats dependency is handled inside the BN layer
-    grads_and_vars = optimizer.apply_lr(grads_and_vars, global_step, iters_per_epoch)
-    update_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
+    # select vars and bn vars
+    head_vars, all_vars = optimizer.apply_lr(grads_and_vars, global_step, iters_per_epoch)
+    head_ops, all_ops = optimizer.apply_bn_up(global_step, iters_per_epoch)
+    # update vars and bn stats
+    with tf.control_dependencies(head_ops):
+        update_head = opt.apply_gradients(head_vars, global_step=global_step)
+    with tf.control_dependencies(all_ops):
+        update_all = opt.apply_gradients(all_vars, global_step=global_step)
 
     # saver, summary, init
     saver_imgnet = tf.train.Saver(var_list=get_resnet50v2_backbone_vars()) # only restore backbone weights
-    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=50)
+    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=100)
     summary_op = tf.summary.merge_all()
     init = tf.global_variables_initializer()
 
@@ -188,7 +193,10 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         for ep_i in range(_EPOCHS + _WARMUP_EP): # in total 80 ep
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
-                _, loss_v = sess.run([update_op, avg_loss])
+                if global_step.eval() - 1 < iters_per_epoch * 5:
+                    _, loss_v = sess.run([update_head, avg_loss])
+                else:
+                    _, loss_v = sess.run([update_all, avg_loss])
 
                 # print loss
                 if iter_i % 50 == 0:

@@ -377,9 +377,14 @@ def batch_norm(inputs, training, momentum, epsilon, data_format, in_num_filters=
         if tower_context.find('tower_0') != -1:
             update_mean_op = moving_averages.assign_moving_average(moving_mean, batch_mean, momentum)
             update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
-            # in this case, moving statistic will be updated here before the actual batch norm execution
-            with tf.control_dependencies([update_mean_op, update_var_op]):
-                inputs = tf.identity(inputs)
+            # in this case, moving statistic must be updated outside in train loop
+            if tf.get_variable_scope().name.find('backbone') == -1: # head scope
+                tf.add_to_collection('head_stat', [update_mean_op, update_var_op])
+                tf.add_to_collection('all_stat', [update_mean_op, update_var_op])
+            else: # in backbone scope
+                tf.add_to_collection('all_stat', [update_mean_op, update_var_op])
+            #with tf.control_dependencies([update_mean_op, update_var_op]):
+            #    inputs = tf.identity(inputs)
 
         # normalize the inputs using local batch statistics
         batch_mean = tf.reshape(batch_mean, new_shape)
