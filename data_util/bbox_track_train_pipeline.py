@@ -256,8 +256,8 @@ def distort_bounding_box(input_bbox, random_shift):
     :return: [xmin', ymin', xmax', ymax']
     '''
 
-    h_rand = tf.random.uniform(shape=[], minval=-(random_shift-1), maxval=random_shift, dtype=tf.int32)
-    w_rand = tf.random.uniform(shape=[], minval=-(random_shift-1), maxval=random_shift, dtype=tf.int32)
+    h_rand = tf.random.uniform(shape=[], minval=-random_shift, maxval=random_shift + 1, dtype=tf.int32)
+    w_rand = tf.random.uniform(shape=[], minval=-random_shift, maxval=random_shift + 1, dtype=tf.int32)
 
     return [input_bbox[0]+w_rand, input_bbox[1]+h_rand, input_bbox[2]+w_rand, input_bbox[3]+h_rand], h_rand, w_rand
 
@@ -436,7 +436,7 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     mean_rgb = tf.reduce_mean(tf.cast(search_img, tf.int64))  # tf.uint8
     mean_rgb = tf.cast(mean_rgb, tf.float32)
     # Get random scale factor
-    rescale_factor = scale_s * float(np.random.randint(low=8, high=13, size=None, dtype=np.int32)) / 10.0
+    rescale_factor = scale_s * tf.random.uniform(shape=[], minval=0.8, maxval=1.2, dtype=tf.float32)
     rescale_factor = tf.debugging.assert_all_finite(t=rescale_factor, msg='rescale_factor factor not a number!')
     # Get rescaled bbox position, and the image
     search_bbox = rescale_bbox(search_bbox, rescale_factor)
@@ -481,8 +481,8 @@ def preprocess_pair(templar_buffer, search_buffer, templar_bbox, search_bbox, nu
     ######################################## Process Score Map GT #############################################
     # [17, 17, 1], [17, 17, 1]
     # consider 8 x (center - offset) <= 16 as positives, stride=8; also note that target in search image is already shifted
-    t_center_x = tf.cast(8.0 - tf.cast(w_shift, tf.float32) / 8.0, tf.int32)
-    t_center_y = tf.cast(8.0 - tf.cast(h_shift, tf.float32) / 8.0, tf.int32)
+    t_center_x = 8 - tf.cast(w_shift / 8, tf.int32)
+    t_center_y = 8 - tf.cast(h_shift / 8, tf.int32)
     score, score_weight = tf.py_func(func=build_gt_py, inp=[t_center_x, t_center_y], Tout=[tf.int32, tf.float32],
                                      stateful=True, name=None)
     """
