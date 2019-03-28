@@ -11,8 +11,11 @@ import tensorflow as tf
 from argparse import ArgumentParser
 import multiprocessing
 import time
+from random import shuffle
+import numpy as np
+from PIL import Image
 
-_NUM_PAIRS = 285849
+_NUM_PAIRS = 285849 # valid number of pairs is: 272459
 _NUM_SHARDS = 256 # 255*1116 + 1*1269 = 284580 + 1269
 _PAIRS_PER_FILE = 1116 # 1116 pairs for 255 shards
 _PAIRS_LAST_FILE = 1269 # 1269 pairs for the last shard
@@ -30,6 +33,10 @@ class ImageCoder():
         self._decode_jpeg_data = tf.placeholder(dtype=tf.string)
         self._decode_jpeg = tf.image.decode_jpeg(self._decode_jpeg_data, channels=3)
 
+        # encode png
+        self._encode_png_data = tf.placeholder(dtype=tf.uint8)
+        self._encode_png = tf.image.encode_png(image=self._encode_png_data)
+
     def decode_jpeg(self, image_data):
         image = self._sess.run(self._decode_jpeg,
                                feed_dict={self._decode_jpeg_data: image_data})
@@ -43,6 +50,12 @@ class ImageCoder():
         assert len(image.shape) == 3
         assert image.shape[2] == 1
         return image
+
+    def encode_png(self, image_data):
+        image_buffer = self._sess.run(self._encode_png,
+                               feed_dict={self._encode_png_data: image_data})
+
+        return image_buffer
 
 def int64_feature(value):
   """Wrapper for inserting int64 features into Example proto."""
@@ -80,6 +93,7 @@ def get_pairs_list(source_dir):
         data = f.read().splitlines()
     if len(data) != _NUM_PAIRS:
         raise ValueError('Number of pairs {} != {}'.format(len(data), _NUM_PAIRS))
+    shuffle(data)
 
     return data
 
@@ -94,6 +108,7 @@ def generate_train_shard(pairs_list, out_dir, num_examples, shard_id, coder):
     writer = tf.python_io.TFRecordWriter(full_out_path, options=compression_option)
 
     # for each pair 'img1_dir img2_dir anno1_dir anno2_dir local_object_id'
+    count = 0
     for pair_line in pairs_list:
         items = pair_line.split(' ')
         # get data
@@ -133,13 +148,30 @@ def generate_train_shard(pairs_list, out_dir, num_examples, shard_id, coder):
         assert width0 == anno0.shape[1]
         assert width0 == anno1.shape[1]
 
+        # encode labels to make pixel values as the object ids
+        anno0_obj = Image.open(anno_path_0)
+        anno0_arr = np.expand_dims(np.array(anno0_obj), -1)
+        if not (object_id in np.unique(anno0_arr)):
+            #print('object id {} not in mask {}'.format(object_id, anno_path_0))
+            continue
+        encoded_anno0 = coder.encode_png(anno0_arr)
+        anno1_obj = Image.open(anno_path_1)
+        anno1_arr = np.expand_dims(np.array(anno1_obj), -1)
+        if not (object_id in np.unique(anno1_arr)):
+            #print('object id {} not in mask {}'.format(object_id, anno_path_1))
+            continue
+        encoded_anno1 = coder.encode_png(anno1_arr)
+
         # write to file
-        example = convert_to_example(image_buffer0, image_buffer1, anno_buffer0, anno_buffer1, object_id, height0, width0)
+        example = convert_to_example(image_buffer0, image_buffer1, encoded_anno0, encoded_anno1, object_id, height0, width0)
         writer.write(example.SerializeToString())
+        count += 1
 
     writer.flush()
     writer.close()
     print('Generated {}'.format(full_out_path))
+
+    return count
 
 
 def generate_train_shards_process(pairs_list, out_dir, shards_per_proc, _PAIRS_PER_FILE, _PAIRS_LAST_FILE, is_last_proc, proc_id):
@@ -148,18 +180,23 @@ def generate_train_shards_process(pairs_list, out_dir, shards_per_proc, _PAIRS_P
     coder = ImageCoder()
     num_shards = shards_per_proc
     print('Start process: {}'.format(multiprocessing.current_process()))
+    count = 0
     for local_shard_id in range(num_shards):
         shard_id = proc_id * shards_per_proc + local_shard_id
         start = local_shard_id * _PAIRS_PER_FILE
         if local_shard_id == num_shards - 1: # the last shard within the process
             end = len(pairs_list)
             if is_last_proc: # the last process, and the last shard
-                generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_LAST_FILE, shard_id, coder)
+                num_sample = generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_LAST_FILE, shard_id, coder)
+                count += num_sample
             else: # not the last process, but the last shard
-                generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_PER_FILE, shard_id, coder)
+                num_sample = generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_PER_FILE, shard_id, coder)
+                count += num_sample
         else: # not the last shard
             end = start + _PAIRS_PER_FILE
-            generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_PER_FILE, shard_id, coder)
+            num_sample = generate_train_shard(pairs_list[start:end], out_dir, _PAIRS_PER_FILE, shard_id, coder)
+            count += num_sample
+    print('Process done, number of valid samples: {}'.format(count))
 
 def main(args):
     # check args
@@ -182,7 +219,7 @@ def main(args):
     pairs_list = get_pairs_list(source_dir)  # should be 285849 pairs
     shards_per_proc = int(num_shards / num_proc)  # should be 256/4=64 by default
     # do not use GPUs
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     # print info
     print('Number of processes: {}'.format(num_proc))
