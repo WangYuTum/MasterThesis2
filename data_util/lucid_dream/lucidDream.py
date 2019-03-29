@@ -9,18 +9,29 @@ def dreamData(img, gt, bgimg, consequent_frames):
     if img.ndim==2 or img.shape[2]==1:
         img=np.dstack((img,)*3)
 
-    object_ids=np.unique(gt)
+    object_ids=np.unique(gt) # ids might be already scaled to [0, 255]
     if object_ids[0]==0:
-        object_ids=object_ids[1:]
+        num_objects = len(object_ids[1:])
+        # convert from [0, 255] to [1, ... M]
+        object_pixel_vals = object_ids[1:]
+        object_ids = [id+1 for id in range(num_objects)]
+    else:
+        raise ValueError('Mask background is not 0, instead is {}'.format(object_ids[0]))
 
+    # select random number of objects
     number_of_objects=np.random.randint(object_ids[-1])+1
     mask_object_ids=np.random.choice(object_ids,number_of_objects,replace=False)
     mask_object_ids=np.sort(mask_object_ids)
-    mask=gt.copy()
+    # convert object pixels from [0, 255] to [1, ..., M]
+    gt_converted = gt.copy()
+    for obj_id in object_ids:
+        np.place(gt_converted, gt_converted == object_pixel_vals[obj_id-1], [obj_id])
+    mask = gt_converted.copy()
+    # zero all not-selected pixels
     mask[np.isin(mask,mask_object_ids,invert=True)]=0
 
     org_back_img=back_img.copy()
-    seg=gt.copy()
+    seg=gt_converted.copy()
 
     if np.random.randint(2):
         kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
@@ -49,7 +60,7 @@ def dreamData(img, gt, bgimg, consequent_frames):
     else:
         new_img,new_seg=blend_mask_multi(seg_backgr,img,back_img,mask)
 
-    im_1,gt_1,bb_1,bg_1=augment_image_mask_illumination_deform_random_img_multi(new_img,new_seg,org_back_img)
+    im_1,gt_1,bg_1=augment_image_mask_illumination_deform_random_img_multi(new_img,new_seg,org_back_img)
 
     if consequent_frames:
         object_ids=np.unique(gt_1)
@@ -73,40 +84,19 @@ def dreamData(img, gt, bgimg, consequent_frames):
             fogr_id=np.random.randint(3)
             fogr_var=np.array([[1,1],[1,0],[0,1]])
             fogr=fogr_var[fogr_id]
+
         if transf_id==0:
-            back_img_2,back_gt_2,F_Flowb,B_Flowb=augment_background(back_img_obj_1,mask_bg,bg_1)
-            new_img2,new_seg2,new_bb2,F_Flowf,B_Flowf=augment_foreground(im_1,mask_fg,back_img_2,back_gt_2,fogr[0],fogr[1])
-
-            mask_fg2=new_seg2.copy()
-            mask_fg2[np.isin(new_seg2,mask_object_ids_fg,invert=True)]=0
-            B_Flowf[mask_fg2<=0]=0
-            B_Flowb[mask_fg2>0]=0
-            Flow_B=B_Flowf+B_Flowb
-            F_Flowf[mask_fg<=0]=0
-            F_Flowb[mask_fg>0]=0
-            Flow_F=F_Flowf+F_Flowb
+            back_img_2,back_gt_2=augment_background(back_img_obj_1,mask_bg,bg_1)
+            new_img2,new_seg2=augment_foreground(im_1,mask_fg,back_img_2,back_gt_2,fogr[0],fogr[1])
         elif transf_id==1:
-            new_img2,new_seg2,new_bb2,F_Flowf,B_Flowf=augment_foreground(im_1,mask_fg,back_img_obj_1,mask_bg,fogr[0],fogr[1])
-
-            mask_fg2=new_seg2.copy()
-            mask_fg2[np.isin(new_seg2,mask_object_ids_fg,invert=True)]=0
-            B_Flowf[mask_fg2<=0]=0
-            Flow_B=B_Flowf
-            F_Flowf[mask_fg<=0]=0
-            Flow_F=F_Flowf
+            new_img2,new_seg2=augment_foreground(im_1,mask_fg,back_img_obj_1,mask_bg,fogr[0],fogr[1])
         else:
-            back_img_2,back_gt_2,F_Flowb,B_Flowb=augment_background(back_img_obj_1,mask_bg,bg_1)
-            new_img2,new_seg2, new_bb2, F_Flowf, B_Flowf=augment_foreground(im_1,mask_fg,back_img_2,back_gt_2,0,0)
+            back_img_2,back_gt_2=augment_background(back_img_obj_1,mask_bg,bg_1)
+            new_img2,new_seg2=augment_foreground(im_1,mask_fg,back_img_2,back_gt_2,0,0)
 
-            mask_fg2=new_seg2.copy()
-            mask_fg2[np.isin(new_seg2,mask_object_ids_fg,invert=True)]=0
-            B_Flowb[mask_fg2>0]=0
-            Flow_B=B_Flowb
-            F_Flowb[mask_fg>0]=0
-            Flow_F=F_Flowb
-        return im_1,gt_1,bb_1, new_img2, new_seg2, new_bb2, Flow_B, Flow_F
+        return im_1, gt_1, new_img2, new_seg2
     else:
-        return im_1,gt_1,bb_1
+        return im_1, gt_1
     
 
 def change_illumination(img,bgimg=None):
@@ -263,7 +253,7 @@ def augment_image_mask_illumination_deform_random_img_multi(im0,gt0,bg0=None):
 
     im1_rot_crop=im0
     gt_rot_crop=gt0
-    bb1_rot_crop=bb1
+    #bb1_rot_crop=bb1
     bg1_rot_crop=bg0
 
     if rotate:
@@ -273,20 +263,20 @@ def augment_image_mask_illumination_deform_random_img_multi(im0,gt0,bg0=None):
             angle=np.random.randint(-15,16)*2
             gt_rot_crop=rotate_image(gt0,angle,cv2.INTER_NEAREST)
         im1_rot_crop=rotate_image(im0,angle,cv2.INTER_CUBIC)
-        bb1_rot_crop=rotate_image(bb1,angle,cv2.INTER_NEAREST)
+        #bb1_rot_crop=rotate_image(bb1,angle,cv2.INTER_NEAREST)
         if bg0 is not None:
             bg1_rot_crop=rotate_image(bg0,angle,cv2.INTER_CUBIC)
         if resize:
             im1_rot_crop=cv2.resize(im1_rot_crop,(im_dim2,im_dim1),interpolation=cv2.INTER_CUBIC)
             gt_rot_crop=cv2.resize(gt_rot_crop,(im_dim2,im_dim1),interpolation=cv2.INTER_NEAREST)
-            bb1_rot_crop=cv2.resize(bb1_rot_crop,(im_dim2,im_dim1),interpolation=cv2.INTER_NEAREST)
+            #bb1_rot_crop=cv2.resize(bb1_rot_crop,(im_dim2,im_dim1),interpolation=cv2.INTER_NEAREST)
             if bg1_rot_crop is not None:
                 bg1_rot_crop=cv2.resize(bg1_rot_crop,(im_dim2,im_dim1),interpolation=cv2.INTER_CUBIC)
     
     if flip:
         im1_rot_crop=np.fliplr(im1_rot_crop)
         gt_rot_crop=np.fliplr(gt_rot_crop)
-        bb1_rot_crop=np.fliplr(bb1_rot_crop)
+        #bb1_rot_crop=np.fliplr(bb1_rot_crop)
         if bg1_rot_crop is not None:
             bg1_rot_crop=np.fliplr(bg1_rot_crop)
     
@@ -296,9 +286,9 @@ def augment_image_mask_illumination_deform_random_img_multi(im0,gt0,bg0=None):
             im1_rot_crop,bg1_rot_crop=im1_rot_crop
     
     if bg1_rot_crop is not None:
-        return im1_rot_crop,gt_rot_crop,bb1_rot_crop,bg1_rot_crop
+        return im1_rot_crop,gt_rot_crop,bg1_rot_crop
     else:
-        return im1_rot_crop,gt_rot_crop,bb1_rot_crop
+        return im1_rot_crop,gt_rot_crop
 
 def rotate_image(image, angle,interp=cv2.INTER_LINEAR):
     """
@@ -459,13 +449,7 @@ def augment_background(img, gt, back_img):
     transformed_image[transformed_mask==0]=transformed_bimage[transformed_mask==0]
     transformed_mask[transformed_mask>0]-=1
 
-    F_Flow=transformPointsForward(bg_flowT[:2],gt.shape[1],gt.shape[0])
-    F_Flow=np.dstack(F_Flow)
-
-    B_Flow=transformPointsInverse(bg_flowT[:2],gt.shape[1],gt.shape[0])
-    B_Flow=np.dstack(B_Flow)
-
-    return transformed_image,transformed_mask,F_Flow,B_Flow
+    return transformed_image,transformed_mask
 
 def transformPointsForward(T,width,height):
     x,y=np.meshgrid(np.arange(width),np.arange(height))
@@ -481,8 +465,6 @@ def transformPointsInverse(T,width,height):
 
 def augment_foreground(img, seg, back_img, mask_bgr, ifshift, iftransform ):
 
-    imh,imw=seg.shape[:2]
-    transform_matrix=np.zeros([imh,imw,2])
     new_seg=seg.copy()
     new_img=img.copy()
     bimask=seg>0
@@ -495,71 +477,19 @@ def augment_foreground(img, seg, back_img, mask_bgr, ifshift, iftransform ):
         h=np.ptp(M)+1
         y,x=np.where(bound>0)
 
-        shift_l=-0.05
-        shift_r=0.05
-
         if x.size>4:
             newxy,transform_matrix=thin_plate_transform(x,y,w,h,seg.shape[:2],num_points=5,offsetMatrix=True)
 
             new_img=cv2.remap(img,newxy,None,cv2.INTER_LINEAR)
             new_seg=cv2.remap(seg,newxy,None,cv2.INTER_NEAREST)
 
-    X_transb=transform_matrix[:,:,0]
-    Y_transb=transform_matrix[:,:,1]
-
     new_img2,new_seg2=blend_mask_transf(new_seg, new_img, back_img, ifshift)
-
-    y,x=np.where(new_seg>0)
-    y2,x2=np.where(new_seg2>0)
-
-    X_trans2=np.zeros(seg.shape,dtype='float32')
-    Y_trans2=np.zeros(seg.shape,dtype='float32')
-    X_trans2[seg>0]=-X_transb[seg>0]
-    Y_trans2[seg>0]=-Y_transb[seg>0]
-
-    if x.size==0 or x2.size==0:
-        Tx=X_trans2
-        Ty=Y_trans2
-    else:
-        Tx=X_trans2+(seg>0)*(x2.min()-x.min())
-        Ty=Y_trans2+(seg>0)*(y2.min()-y.min())
-    
-    X_transb2=np.zeros(seg.shape,dtype='float32')
-    Y_transb2=np.zeros(seg.shape,dtype='float32')
-    X_transb2[new_seg2>0]=X_transb[new_seg>0]
-    Y_transb2[new_seg2>0]=Y_transb[new_seg>0]
-    
-    if x.size==0 or x2.size==0:
-        Txb=X_transb2
-        Tyb=Y_transb2
-    else:
-        Txb=X_transb2-(new_seg2>0)*(x2.min()-x.min())
-        Tyb=Y_transb2-(new_seg2>0)*(y2.min()-y.min())
-    
-    Flow=np.dstack((Tx,Ty))
-    Flowb=np.dstack((Txb,Tyb))
 
     new_seg=mask_bgr.copy()
     new_seg[new_seg2>0]=new_seg2[new_seg2>0]
     new_seg2=new_seg
 
-    seg=new_seg2
-    M,N=np.where(seg>0)
-    if M.size==0:
-        return new_img2,new_seg2,seg,Flow,Flowb
-    w=np.ptp(N)+1
-    h=np.ptp(M)+1
-    bb1=seg
-    y,x=np.where(bound>0)
-
-    if x.size>4:
-        newxy=thin_plate_transform(x,y,w,h,seg.shape[:2],num_points=5)
-        
-        bb1=cv2.remap(seg,newxy,None,cv2.INTER_NEAREST)
-        kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(11,11))
-        bb1=cv2.dilate(bb1,kernel)
-
-    return new_img2,new_seg2, bb1, Flow, Flowb
+    return new_img2,new_seg2
 
 def blend_mask_transf(seg, img, back_img, ifshift):
     M,N=np.where(seg>0)
