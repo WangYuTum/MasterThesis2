@@ -98,7 +98,7 @@ def main():
     palette_gen = gen_palette()
     count = 0
     stat_list = [] # keep note of all training pairs and their image/mask dirs
-    for id in range(5):
+    for id in range(NUM_SEG_TRAINVAL):
         # read image/mask
         Iorg = cv2.imread(pair_list[id][0])
         seg_gt = Image.open(pair_list[id][1]) # object ids might already be scaled
