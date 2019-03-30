@@ -7,18 +7,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import cv2
+import cv2, sys, os
 from PIL import Image
 import numpy as np
-from patchPaint import paint
-from lucidDream import dreamData
+sys.path.append('../..')
+from data_util.lucid_dream.patchPaint import paint
+from data_util.lucid_dream.lucidDream import dreamData
 
 
-def gen_pairs(in_img, in_mask, num_pairs, bg_img=None):
+def gen_pairs(in_img, in_mask, in_palette, num_pairs, save_dir, stat_list, bg_img=None):
     '''
-    :param in_img: input image path, can be any RGB/gray image, 'jpeg'/'jpg'
-    :param in_mask: input mask, may contains multiple objects, 'png'
+    :param in_img: input image, as cv2 image
+    :param in_mask: input mask, as np.array
+    :param in_palette: input palette
     :param num_pairs: how many pairs you want to generate
+    :param save_dir: the save dir
+    :param stat_list: keep note of the generated data paths
     :param bg_img: whether to use an external image as the background image, default to None
     :return: a list of generated pairs,
         each pair is of the form [img0, mask0, img1, mask1, object_id_list]
@@ -27,33 +31,32 @@ def gen_pairs(in_img, in_mask, num_pairs, bg_img=None):
         object_id_list: list of all object ids in this pair, they are present in both img0 and img1
     '''
 
-    Iorg = cv2.imread(in_img)
-    Morg = Image.open(in_mask) # object ids might already be scaled
-    palette = Morg.getpalette()
-    if palette is None:
-        palette = [0, 0, 0, 150, 0, 0, 0, 150, 0, 0, 0, 150]
-
     if bg_img is None:
-        bg = paint(Iorg, np.array(Morg), False)
-        cv2.imwrite('bg.jpg', bg) # TODO: comment out
+        bg = paint(in_img, np.array(in_mask), False)
     else:
         bg = cv2.imread(bg_img)
-    im_1, gt_1, im_2, gt_2 = dreamData(Iorg, np.array(Morg), bg, True)
 
-    # save images
-    # cv2.imwrite('left.jpg', im_1)
-    # cv2.imwrite('right.jpg', im_1)
+    for i in range(num_pairs):
+        img1_save_name = os.path.join(save_dir, str(i).zfill(5) + 'L.jpg')
+        img2_save_name = os.path.join(save_dir, str(i).zfill(5) + 'R.jpg')
+        gt1_save_name = os.path.join(save_dir, str(i).zfill(5) + 'L.png')
+        gt2_save_name = os.path.join(save_dir, str(i).zfill(5) + 'R.png')
+        im_1, gt_1, im_2, gt_2 = dreamData(in_img, np.array(in_mask), bg, True)
 
-    # save masks
-    # Mask for image 1.
-    # gtim1 = Image.fromarray(gt_1, 'P')
-    # gtim1.putpalette(palette)
-    # gtim1.save('left.png')
-    # gtim2 = Image.fromarray(gt_2, 'P')
-    # gtim2.putpalette(palette)
-    # gtim2.save('right.png')
+        # save images
+        cv2.imwrite(img1_save_name, im_1)
+        cv2.imwrite(img2_save_name, im_2)
 
-    return im_1, gt_1, im_2, gt_2
+        # Mask for image 1.
+        gtim1 = Image.fromarray(gt_1, 'P')
+        gtim1.putpalette(in_palette)
+        gtim1.save(gt1_save_name)
+        gtim2 = Image.fromarray(gt_2, 'P')
+        gtim2.putpalette(in_palette)
+        gtim2.save(gt2_save_name)
+
+        # keep note
+        stat_list.append([img1_save_name, gt1_save_name, img2_save_name, gt2_save_name])
 
 def main():
     print('Hello')

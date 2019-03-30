@@ -8,8 +8,9 @@ import cv2
 from PIL import Image
 from PIL import ImagePalette
 import numpy as np
-from patchPaint import paint
-from lucidDream import dreamData
+sys.path.append('../../')
+from data_util.lucid_dream.patchPaint import paint
+from data_util.lucid_dream.lucidDream import dreamData
 
 Iorg=cv2.imread('example2/img.jpg')
 Morg=Image.open('example2/gt.png')

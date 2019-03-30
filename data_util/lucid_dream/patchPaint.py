@@ -5,7 +5,9 @@ import pycuda.driver as drv
 import pycuda.autoinit
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
-from PatchMatch.PatchMatchCuda import PatchMatch
+import sys
+sys.path.append('../..')
+from data_util.lucid_dream.PatchMatch.PatchMatchCuda import PatchMatch
 
 def paint(Iorg, Mask, verbose=True, sigma=0.1):
     Iorg=cv2.cvtColor(Iorg,cv2.COLOR_BGR2Lab)
