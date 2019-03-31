@@ -127,12 +127,12 @@ def main():
         print('Generating {}'.format(id))
         save_dir = os.path.join(SAVE_DIR, str(id).zfill(5))
         if os.path.isdir(save_dir) and os.path.exists(save_dir):
-            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, save_dir=save_dir,
-                                stat_list=stat_list, bg_img=None)
+            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, start_id=0,
+                                save_dir=save_dir, stat_list=stat_list, bg_img=None)
         else:
             os.mkdir(save_dir)
-            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, save_dir=save_dir,
-                                stat_list=stat_list, bg_img=None)
+            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, start_id=0,
+                                save_dir=save_dir, stat_list=stat_list, bg_img=None)
         count += 5
 
     # write stat_list to file

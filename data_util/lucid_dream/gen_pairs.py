@@ -15,15 +15,16 @@ from data_util.lucid_dream.patchPaint import paint
 from data_util.lucid_dream.lucidDream import dreamData
 
 
-def gen_pairs(in_img, in_mask, in_palette, num_pairs, save_dir, stat_list, bg_img=None):
+def gen_pairs(in_img, in_mask, in_palette, num_pairs, start_id, save_dir, stat_list, bg_img=None):
     '''
-    :param in_img: input image, as cv2 image
+    :param in_img: input image, as cv2 image BGR order
     :param in_mask: input mask, as np.array
     :param in_palette: input palette
     :param num_pairs: how many pairs you want to generate
+    :param start_id: save name of start id
     :param save_dir: the save dir
     :param stat_list: keep note of the generated data paths
-    :param bg_img: whether to use an external image as the background image, default to None
+    :param bg_img: whether to use an external image as the background image, default to None, otherwise cv2 BGR image
     :return: a list of generated pairs,
         each pair is of the form [img0, mask0, img1, mask1, object_id_list]
         img0, img1: jpg format
@@ -34,16 +35,16 @@ def gen_pairs(in_img, in_mask, in_palette, num_pairs, save_dir, stat_list, bg_im
     if bg_img is None:
         bg = paint(in_img, np.array(in_mask), False)
     else:
-        bg = cv2.imread(bg_img)
+        bg = bg_img
 
     for i in range(num_pairs):
-        img1_save_name = os.path.join(save_dir, str(i).zfill(5) + 'L.jpg')
-        img2_save_name = os.path.join(save_dir, str(i).zfill(5) + 'R.jpg')
-        gt1_save_name = os.path.join(save_dir, str(i).zfill(5) + 'L.png')
-        gt2_save_name = os.path.join(save_dir, str(i).zfill(5) + 'R.png')
+        img1_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'L.jpg')
+        img2_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'R.jpg')
+        gt1_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'L.png')
+        gt2_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'R.png')
         im_1, gt_1, im_2, gt_2 = dreamData(in_img, np.array(in_mask), bg, True)
 
-        # save images
+        # save images, rgb order on disk
         cv2.imwrite(img1_save_name, im_1)
         cv2.imwrite(img2_save_name, im_2)
 
