@@ -166,7 +166,7 @@ def main():
     palette_gen = gen_palette()
     count = 0 # count number of pairs
     stat_list = []  # keep note of all training pairs and their image/mask dirs
-    for id in range(1): # TODO: NUM_ECSSD + NUM_MSRA
+    for id in range(NUM_ECSSD + NUM_MSRA):
         print('Generating {}'.format(id))
         # read image/mask
         Iorg = cv2.imread(fg_pairs[id][0])
