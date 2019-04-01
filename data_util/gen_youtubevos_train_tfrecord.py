@@ -218,7 +218,7 @@ def main(args):
         raise ValueError('Number of shards must be {}'.format(_NUM_SHARDS))
     pairs_list = get_pairs_list(source_dir)  # should be 285849 pairs
     shards_per_proc = int(num_shards / num_proc)  # should be 256/4=64 by default
-    # do not use GPUs
+    # use GPUs
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     # print info
