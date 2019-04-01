@@ -211,6 +211,7 @@ def main():
     file_name = os.path.join(SAVE_BASE_DIR, 'train_pairs.txt')
     with open(file_name, 'w') as f:
         # line format: img1_dir, gt1_dir, img2_dir, gt2_dir
+        f.write('line format: img1_dir anno1_dir img2_dir anno2_dir' + '\n')
         for item in stat_list:
             f.write(str(item[0]) + ' ' + str(item[1]) + ' ' + str(item[2]) + ' ' + str(item[3]) + '\n')
         f.flush()

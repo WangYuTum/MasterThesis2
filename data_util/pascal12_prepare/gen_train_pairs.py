@@ -2,6 +2,9 @@
 The script generates training pairs from PASCAL VOC 12 objects segmentation dataset.
 For each image/mask (might contain multiple objects), apply two sets of transformations resulting in two new images/masks.
 The generated two images/masks are considered as a training pair simulating two consecutive frames.
+
+For each image/mask, we generate 10 pairs. In total, there will be 2913 * 50 = 145650 pairs. There might be multiple
+objects within each pair, we must sample the objects to get a final training list. See sample_pairs.py under the same dir.
 '''
 
 from __future__ import absolute_import
@@ -127,18 +130,19 @@ def main():
         print('Generating {}'.format(id))
         save_dir = os.path.join(SAVE_DIR, str(id).zfill(5))
         if os.path.isdir(save_dir) and os.path.exists(save_dir):
-            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, start_id=0,
+            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=50, start_id=0,
                                 save_dir=save_dir, stat_list=stat_list, bg_img=None)
         else:
             os.mkdir(save_dir)
-            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=5, start_id=0,
+            gen_pairs.gen_pairs(in_img=Iorg, in_mask=seg_gt, in_palette=palette, num_pairs=50, start_id=0,
                                 save_dir=save_dir, stat_list=stat_list, bg_img=None)
-        count += 5
+        count += 50
 
     # write stat_list to file
     file_name = os.path.join(BASE_DIR, 'train_pairs.txt')
     with open(file_name, 'w') as f:
         # line format: img1_dir, gt1_dir, img2_dir, gt2_dir
+        f.write('line format: img1_dir anno1_dir img2_dir anno2_dir' + '\n')
         for item in stat_list:
             f.write(str(item[0])+ ' ' + str(item[1]) + ' ' + str(item[2]) + ' ' + str(item[3]) + '\n')
         f.flush()
