@@ -30,7 +30,6 @@ NUM_SEG_TRAINVAL = 2913
 
 def main():
 
-    # TODO: get dirs, get the raw_data dir
     data_dir = os.path.join(BASE_DIR, 'Augmented')
     aug_dirs = sorted([os.path.join(data_dir, obj_dir_name) for obj_dir_name in os.listdir(data_dir) if \
                        os.path.isdir(os.path.join(data_dir, obj_dir_name))])

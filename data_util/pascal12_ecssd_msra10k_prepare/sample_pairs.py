@@ -24,8 +24,7 @@ NUM_OBJS = 11000
 
 def main():
 
-    # TODO: get dirs, get raw_data dirs
-    data_dir = os.path.join(BASE_DIR, 'raw_data')
+    data_dir = os.path.join(BASE_DIR, 'image_pairs')
     obj_dirs = sorted([os.path.join(data_dir, obj_dir_name) for obj_dir_name in os.listdir(data_dir) if \
                 os.path.isdir(os.path.join(data_dir, obj_dir_name))])
     if len(obj_dirs) != NUM_OBJS:
