@@ -21,12 +21,12 @@ from data_util.bbox_helper import blend_search_seg_mask
 from data_util.bbox_helper import get_mask_center
 import time
 
-_NUM_TRAIN = 272459 # number of valid training pairs
+_NUM_TRAIN = 272459 # TODO: number of valid training pairs, 272459-YoutubeVOS
 _TRAINING = True
 _NUM_GPU = 1
-_NUM_SHARDS = 256 # number of tfrecords
-_BATCH_SIZE = 2 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
-_PAIRS_PER_EP = 250000
+_NUM_SHARDS = 256 # TODO: number of tfrecords, 256-YoutubeVOS
+_BATCH_SIZE = 2 # how many pairs per iter
+_PAIRS_PER_EP = 250000 # TODO: number of pairs per ep, 250000-YoutubeBOS
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 35
 _WARMUP_EP = 5 # number of epochs for warm up
@@ -43,11 +43,11 @@ else:
 
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
-_DATA_SOURCE =  '/storage/slurm/wangyu/youtube_vos/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/gpu4_sgd/gpu4_sgd.ckpt'
-_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/gpu4_sgd/'
+_DATA_SOURCE =  '/storage/slurm/wangyu/youtube_vos/tfrecord_train' # TODO: YoubuteVOS
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/youtube_vos_sgd/youtube_vos_sgd.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/youtube_vos_sgd/'
 _SAVE_CHECKPOINT_EP = 1
-_SAVE_SUM_ITER = 20
+_SAVE_SUM_ITER = 1
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
@@ -89,7 +89,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     tower_loss = []
 
     # common model attributes for all GPUs
-    model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed/resnet50_v2.ckpt',
+    model_params = {'load_weight': '/storage/remote/atbeetz21/wangyu/imagenet/resnet_v2_imagenet_transformed_mask/resnet50_v2_mask.ckpt',
                     'batch': _BATCH_PER_GPU, # each batch actually has batch*2 images
                     'bn_momentum': _BN_MOMENTUM,
                     'bn_epsilon': _BN_EPSILON,
@@ -102,11 +102,9 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         for gpu_id in range(_NUM_GPU):
             with tf.device('/gpu:%d' % gpu_id):
                 with tf.name_scope('%s_%d' % ('tower', gpu_id)) as scope:  # operation scope for each gpu
-                    # build model
                     print('Building model on GPU {}'.format(gpu_id))
-                    # test input pipeline
+                    ### input pipeline
                     sample = next_element_gpus[gpu_id]
-                    # keys: templar_img_mask, search_img_mask, score, score_weight, gt_masks, tight_temp_bbox, tight_search_bbox
                     templar_img_mask = sample['templar_img_mask'] # [n, 4, 127, 127], tf.float32
                     search_img_mask = sample['search_img_mask'] # [n, 5, 255, 255], tf.float32
                     score = sample['score'] # [n, 1, 17, 17], tf.int32
@@ -128,41 +126,29 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     tf.summary.image(name='templar_bbox_mask', tensor=templar_bbox_sum)
                     tf.summary.image(name='search_bbox', tensor=search_bbox_sum)
                     tf.summary.image(name='search_gauss_prior', tensor=tf.transpose(search_img_mask[:,3:4,:,:], [0,2,3,1]))
-                    search_mask_center = get_mask_center(search_img_mask[:,4:5,:,:], batch=_BATCH_PER_GPU) # [n, 2]
-                    masked_search_seg = blend_search_seg_mask(img_search=search_img_mask[:,0:3,:,:], gt_masks=gt_masks,
-                                                              centers=search_mask_center, batch=_BATCH_PER_GPU) # [n*13, 127, 127, 3]
-                    tf.summary.image(name='search_seg_mask', tensor=masked_search_seg, max_outputs=13)
-                    # create score/score_weight summaries
+                    #search_mask_center = get_mask_center(search_img_mask[:,4:5,:,:], batch=_BATCH_PER_GPU) # [n, 2]
+                    #masked_search_seg = blend_search_seg_mask(img_search=search_img_mask[:,0:3,:,:], gt_masks=gt_masks,
+                    #                                          centers=search_mask_center, batch=_BATCH_PER_GPU) # [n*13, 127, 127, 3]
+                    #tf.summary.image(name='search_seg_mask', tensor=masked_search_seg, max_outputs=5)
                     tf.summary.image(name='score',
                                      tensor=tf.transpose(tf.cast(score, tf.uint8) * 255, [0, 2, 3, 1]))
-                    # create weight for gt_masks summaries
-                    for batch_i in range(_BATCH_PER_GPU):
-                        for mask_i in range(13):
-                            tf.summary.image(name='gt_masks_weight',
-                                             tensor=tf.transpose(gt_masks_weight[batch_i:batch_i+1,mask_i:mask_i+1,:,:], [0, 2, 3, 1]))
-                    """
+
+                    # build model
                     model = resnet.ResNetSiam(model_params)
-                    z_input = next_element_gpus[gpu_id]['templar'] # [batch, 3, 127, 127]
-                    x_input = next_element_gpus[gpu_id]['search'] # [batch, 3, 255, 255]
+                    z_input = templar_img_mask # [batch, 4, 127, 127]
+                    x_input = search_img_mask[:,0:4,:,:] # [batch, 4, 255, 255]
                     reuse = False if gpu_id == 0 else True # reuse is false if first build the backbone
                     z_feat = model.build_templar(input_z=z_input, training=_TRAINING, reuse=reuse)
                     # reuse is always True
                     x_feat = model.build_search(input_x=x_input, training=_TRAINING, reuse=True)
-                    score_logits = model.build_CC(z_feat=z_feat, x_feat=x_feat, training=_TRAINING) # [batch, 1, 17, 17]
-                    ################# image summaries #################
-                    templar_sum = draw_bbox_templar(templars=next_element_gpus[gpu_id]['templar'],
-                                                    bbox_templars=next_element_gpus[gpu_id]['tight_temp_bbox'],
-                                                    batch=_BATCH_PER_GPU)
-                    tf.summary.image(name='templar',tensor=templar_sum)
-                    search_sum = draw_bbox_search(searchs=next_element_gpus[gpu_id]['search'],
-                                                  bbox_searchs=next_element_gpus[gpu_id]['tight_search_bbox'],
-                                                  batch=_BATCH_PER_GPU)
-                    tf.summary.image(name='search', tensor=search_sum)
-                    tf.summary.image(name='score', tensor=tf.transpose(tf.cast(next_element_gpus[gpu_id]['score'], tf.uint8) * 255, [0,2,3,1]))
+                    # build score, mask, outputs: [batch, 1, 17, 17], [batch, 63*63, 17, 17]
+                    score_logits, mask_logits = model.build_cc_mask(z_feat=z_feat, x_feat=x_feat, training=_TRAINING)
+                    ################# summaries #################
                     tf.summary.image(name='logits', tensor=tf.transpose(score_logits, [0,2,3,1]))
-                    # get loss
-                    loss = model.loss_score(score_map=score_logits, score_gt=next_element_gpus[gpu_id]['score'],
-                                            score_weight=next_element_gpus[gpu_id]['score_weight'], scope=scope)
+                    loss = model.loss_score_mask(batch=_BATCH_PER_GPU, score_map=score_logits, score_gt=score,
+                                                 score_weight=score_weight, mask_logits=mask_logits, gt_mask=gt_masks,
+                                                 gt_mask_weights=gt_masks_weight, alpha=1.0, bete=32.0, scope=scope)
+                    # TODO: visualize mask logists
                     tower_loss.append(tf.expand_dims(loss, 0))
                     print('Model built on tower_{}'.format(gpu_id))
 
@@ -172,15 +158,16 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     # compute grads on the current tower, and save them
                     grads_and_vars = opt.compute_gradients(loss)
                     tower_grad.append(grads_and_vars)
-                    """
     # get averaged loss across towers for tensorboard display
-    """
     tower_loss = tf.concat(axis=0, values=tower_loss)
     avg_loss = tf.reduce_mean(tower_loss, axis=0)
     tf.summary.scalar(name='avg_loss', tensor=avg_loss)
 
     # average grads across all towers, also the synchronization point
-    grads_and_vars = optimizer.average_grads(tower_grad)
+    if _NUM_GPU > 1:
+        grads_and_vars = optimizer.average_grads(tower_grad)
+    else:
+        grads_and_vars = tower_grad[0]
     # tracking learning rate if use SGD Momentum
 
     if _OPTIMIZER == 'momentum':
@@ -198,7 +185,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # saver
     saver_imgnet = tf.train.Saver(var_list=get_resnet50v2_backbone_vars()) # only restore backbone weights
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=100)
-    """
+
     # summary, init
     summary_op = tf.summary.merge_all()
     init = tf.global_variables_initializer()
@@ -210,7 +197,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     with tf.Session(config=sess_config) as sess:
         # init all variables
         sess.run(init)
-        #saver_imgnet.restore(sess=sess, save_path=model_params['load_weight'])
+        saver_imgnet.restore(sess=sess, save_path=model_params['load_weight'])
         print('All variables initialized.')
 
         # get summary writer
@@ -233,21 +220,24 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         time.sleep(3)
 
         # start training
-        for ep_i in range(_EPOCHS + _WARMUP_EP): # in total 80 ep
+        for ep_i in range(_EPOCHS + _WARMUP_EP):
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
-                print('iter: {}'.format(iter_i))
-                if global_step.eval() - 1 < iters_per_epoch * 5:
+                """
+                if global_step.eval() - 1 < iters_per_epoch * 2: # 2 eps for warm up
                     _, loss_v = sess.run([update_head, avg_loss])
                 else:
                     _, loss_v = sess.run([update_all, avg_loss])
+                """
+                #_, loss_v = sess.run([update_all, avg_loss])
+                _, loss_v, summary_out = sess.run([update_all, avg_loss, summary_op])
                 # print loss
-                if iter_i % 20 == 0:
-                    print('iter: {}, loss: {}'.format(global_step.eval()-1, loss_v)) # global_step.eval()-1, loss_v
+                if iter_i % 1 == 0:
+                    print('iter: {}, avg loss: {}'.format(global_step.eval(), loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:
-                    summary_out = sess.run([summary_op])
-                    sum_writer.add_summary(summary_out, global_step.eval()-1)
+                    # summary_out = sess.run([summary_op])
+                    sum_writer.add_summary(summary_out, global_step.eval())
             # save checkpoint
             if (ep_i+1) % _SAVE_CHECKPOINT_EP == 0:
                 saver.save(sess=sess, save_path = _SAVE_CHECKPOINT, global_step=global_step,

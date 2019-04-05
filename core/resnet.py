@@ -84,18 +84,19 @@ class ResNetSiam():
         :return: [15, 15, 256, batch]
         '''
 
+        # build templar initial conv: [7x7,4,64], down-sample 2x
+        with tf.variable_scope('temp_begin'):
+            temp_begin_feat = nn.conv_layer(inputs=input_z, filters=[4, self.init_filters_], kernel_size=self.init_kernel_size_,
+                                            stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
+                                            data_format=self.data_format_, pad='VALID', dilate_rate=1)
+
         # build backbone
-        z_feat = self.build_model(input=input_z, training=training, reuse=reuse)
+        z_feat = self.build_model(input=temp_begin_feat, training=training, reuse=reuse)
         # build templar exclusive branch
         with tf.variable_scope('temp_adjust'):
             z_adjust = nn.conv_layer(inputs=z_feat, filters=[1024, 256], kernel_size=1,
                                      stride=1, l2_decay=self.l2_weight_, training=training,
                                      data_format=self.data_format_, pad='SAME', dilate_rate=1)
-            #bias_z = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-            #                                 training=training)
-            #print('Create {0}, {1}'.format(bias_z.name, [256]))
-            #z_adjust = tf.nn.bias_add(value=z_adjust, bias=bias_z,
-            #                          data_format='NCHW')  # [batch, 256, 15, 15]
             z_feat = tf.transpose(z_adjust, [2, 3, 1, 0])  # reshape to [15, 15, 256, batch]
 
         return z_feat
@@ -108,26 +109,28 @@ class ResNetSiam():
         :return: [batch, 256, 31, 31]
         '''
 
+        # build search initial conv: [7x7,4,64], down-sample 2x
+        with tf.variable_scope('search_begin'):
+            search_begin_feat = nn.conv_layer(inputs=input_x, filters=[4, self.init_filters_], kernel_size=self.init_kernel_size_,
+                                              stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
+                                              data_format=self.data_format_, pad='VALID', dilate_rate=1)
+
         # build backbone, reuse vars
-        x_feat = self.build_model(input=input_x, training=training, reuse=reuse)
+        x_feat = self.build_model(input=search_begin_feat, training=training, reuse=reuse)
         # build search exclusive branch
         with tf.variable_scope('search_adjust'):
             x_adjust = nn.conv_layer(inputs=x_feat, filters=[1024, 256], kernel_size=1,
                                      stride=1, l2_decay=self.l2_weight_, training=training,
                                      data_format=self.data_format_, pad='SAME', dilate_rate=1)
-            #bias_x = nn.get_var_cpu_no_decay(name='bias', shape=256, initializer=tf.zeros_initializer(),
-            #                                 training=training)
-            #print('Create {0}, {1}'.format(bias_x.name, [256]))
-            #x_feat = tf.nn.bias_add(value=x_adjust, bias=bias_x, data_format='NCHW')  # [batch, 256, 31, 31]
             x_feat = x_adjust
 
         return x_feat
 
-    def build_CC(self, z_feat, x_feat, training):
+    def build_cc_mask(self, z_feat, x_feat, training):
         '''
         :param z_feat:  [15, 15, 256, batch]
         :param x_feat:  [batch, 256, 31, 31]
-        :return: [batch, 1, 17, 17]
+        :return: [batch, 1, 17, 17], [batch, 63*63, 17, 17]
         '''
 
         # do cross-correlations, batch conv operations
@@ -140,13 +143,15 @@ class ResNetSiam():
                                                   padding='VALID', data_format='NCHW') # [1, 256, 17, 17]
                 cc_feat.append(depth_cc)
             cc_out = tf.concat(axis=0, values=cc_feat)  # [batch, 256, 17, 17]
+            print('Cross correlation layers built.')
+        with tf.variable_scope('score_branch'):
             # conv5 score branch
             # BN + Relu + conv
-            cc_out = nn.batch_norm(inputs=cc_out, training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
+            cc_out0 = nn.batch_norm(inputs=cc_out, training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
                                      data_format=self.data_format_, in_num_filters=256)
-            cc_out = tf.nn.relu(cc_out)
+            cc_out0 = tf.nn.relu(cc_out0)
             with tf.variable_scope('conv5'):
-                score = nn.conv_layer(inputs=cc_out, filters=[256, 256], kernel_size=1,
+                score = nn.conv_layer(inputs=cc_out0, filters=[256, 256], kernel_size=1,
                                       stride=1, l2_decay=self.l2_weight_, training=training,
                                       data_format=self.data_format_, pad='VALID', dilate_rate=1)
             # conv6
@@ -154,14 +159,29 @@ class ResNetSiam():
                 score = nn.conv_layer(inputs=score, filters=[256, 1], kernel_size=1,
                                       stride=1, l2_decay=self.l2_weight_, training=training,
                                       data_format=self.data_format_, pad='VALID', dilate_rate=1)
-        print('Cross correlation layers built.')
+        with tf.variable_scope('mask_branch'):
+            # conv5 mask branch
+            # BN + ReLu + conv
+            cc_out1 = nn.batch_norm(inputs=cc_out, training=training, momentum=self.bn_momentum_,
+                                    epsilon=self.bn_epsilon_,
+                                    data_format=self.data_format_, in_num_filters=256)
+            cc_out1 = tf.nn.relu(cc_out1)
+            with tf.variable_scope('conv5'):
+                mask = nn.conv_layer(inputs=cc_out1, filters=[256, 256], kernel_size=1,
+                                      stride=1, l2_decay=self.l2_weight_, training=training,
+                                      data_format=self.data_format_, pad='VALID', dilate_rate=1)
+            # conv6
+            with tf.variable_scope('conv6'):
+                mask = nn.conv_layer(inputs=mask, filters=[256, 63*63], kernel_size=1,
+                                      stride=1, l2_decay=self.l2_weight_, training=training,
+                                      data_format=self.data_format_, pad='VALID', dilate_rate=1) # [batch, 63*63, 17, 17]
 
-        return score
+        return score, mask
 
     def build_model(self, input, training, reuse=False):
         '''
         Build Siamese model: build two identical models on the same device and share variables
-        :param input [batch, 3, 127, 127] or [batch, 3, 255, 255]
+        :param input [batch, 64, 61, 61] or [batch, 64, 125, 125]
         :param training: boolean
         :param reuse: boolean
         :return: output of network as [batch, 1024, 15, 15] or [batch, 1024, 31, 31]
@@ -170,12 +190,8 @@ class ResNetSiam():
         # the templar branch
         stage_out = [] # outputs of c2 ~ c4
         with tf.variable_scope('backbone', reuse=reuse):
-            ############################ initial conv 7x7, down-sample 4x ##################################
-            inputs = nn.conv_layer(inputs=input, filters=[3, self.init_filters_], kernel_size=self.init_kernel_size_,
-                                   stride=self.init_conv_stride_, l2_decay=self.l2_weight_, training=training,
-                                   data_format=self.data_format_, pad='VALID', dilate_rate=1)
-            # down-sample again by pooling
-            inputs = nn.max_pool(inputs=inputs, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
+            # down-sample 2x by pooling
+            inputs = nn.max_pool(inputs=input, pool_size=self.init_pool_size_, pool_stride=self.init_pool_stride_,
                                  data_format=self.data_format_, pad='SAME')
 
             ############################ Resnet stages C2 ~ C4 ##################################
@@ -187,21 +203,24 @@ class ResNetSiam():
                                    training=training)
                 inputs = tf.identity(inputs, name='C%d_out'%stage_id)
                 stage_out.append(inputs)
-            # BN + relu
-            #out_feat = nn.batch_norm(inputs=stage_out[2], training=training, momentum=self.bn_momentum_, epsilon=self.bn_epsilon_,
-            #                    data_format=self.data_format_)
-            #out_feat = tf.nn.relu(out_feat)
             out_feat = stage_out[2]
 
         return out_feat
 
-    def loss_score(self, score_map, score_gt, score_weight, scope):
+    def loss_score_mask(self, batch, score_map, score_gt, score_weight, mask_logits, gt_mask, gt_mask_weights,
+                        alpha, bete, scope):
         '''
-        :param score_map: [batch/2, 1, 17, 17], pred score map for each pair, tf.float32
-        :param score_gt: [batch/2, 1, 17, 17], gt score map for each pair, tf.int32
-        :param score_weight: [batch/2, 1, 17, 17], balanced weight for score map, tf.float32
+        :param batch: batch size per gpu, must be fixed when building graph
+        :param score_map: [batch, 1, 17, 17], pred score map for each pair, tf.float32
+        :param score_gt: [batch, 1, 17, 17], gt score map for each pair, tf.int32
+        :param score_weight: [batch, 1, 17, 17], balanced weight for score map, tf.float32
+        :param mask_logits: [batch, 63*63, 17, 17], tf.float32
+        :param gt_mask: [batch, 13, 127, 127], tf.int32, binary mask for 13 positive positions
+        :param gt_mask_weights: [batch, 13, 127, 127], tf.float32, balance weights for 13 positive positions
+        :param alpha: loss weight for score, tf.float32
+        :param beta: loss weight for mask, tf.float32
         :param scope: context of the current tower, VERY important in multi-GPU setup
-        :return: score_loss + l2_loss
+        :return: alpha * score_loss + beta * mask_loss + l2_loss
         '''
         print('Building loss...')
 
@@ -212,6 +231,7 @@ class ResNetSiam():
         losses = tf.get_collection('l2_losses', scope=scope)
         l2_total = tf.add_n(losses)
         tf.summary.scalar(name='%s_l2' % scope, tensor=l2_total)
+        print('L2 loss built.')
 
         ########################## Loss for score map ##############################
         score_gt = tf.cast(score_gt, tf.float32)
@@ -227,12 +247,90 @@ class ResNetSiam():
         # use balanced cross-entropy on score maps
         score_loss = self.balanced_sigmoid_cross_entropy(logits=score_map, gt=score_gt, weight=score_weight)
         tf.summary.scalar(name='%s_score' % scope, tensor=score_loss)
+        print('Score loss built.')
+
+
+        ########################## Loss for Mask ##############################
+        # TODO: add mask loss to total loss
+        # only compute loss for positive positions
+        # score_gt: [n, 1, 17, 17], tf.int32
+        # mask_logits: [n, 63*63, 17, 17], tf.float32
+        # gt_mask: [n, 13, 127, 127], tf.int32
+        # gt_mask_weights: [n, 13, 127, 127], tf.float32
+        mask_losses = []
+        # for each batch
+        for batch_i in range(batch):
+            tower_context = tf.get_default_graph().get_name_scope()
+            with tf.variable_scope(tower_context, reuse=False):
+                mask_counter = tf.get_variable(name='mask_counter_%s_%i' %(scope, batch_i), shape=[], dtype=tf.int32,
+                                               initializer=tf.zeros_initializer(), trainable=False)
+            increment_counter = tf.assign(mask_counter, mask_counter + 1)
+            reset_counter = tf.assign(mask_counter, 0)
+            # set counter to 0 before looping all positions
+            with tf.control_dependencies([reset_counter]):
+                tmp_score_gt = tf.identity(score_gt)
+            a_score_gt = tmp_score_gt[batch_i:batch_i+1,:,:,:] # [1,1,17,17], tf.int32
+            a_mask_logits = mask_logits[batch_i:batch_i+1,:,:,:] # [1,63*63,17,17], tf.float32
+            a_gt_mask = gt_mask[batch_i:batch_i+1,:,:,:] # [1,13,127,127], tf.int32
+            a_gt_mask_weight = gt_mask_weights[batch_i:batch_i+1,:,:,:] # [1,13,127,127], tf.float32
+            # for all positions
+            for h in range(17):
+                for w in range(17):
+                    # check if current position is positive
+                    is_positive = tf.equal(tf.squeeze(a_score_gt[:,:,h:h+1,w:w+1]), 1)
+                    # compute loss if positive, otherwise return 0
+                    a_loss = tf.cond(is_positive,
+                                     lambda : self.get_mask_loss(a_mask_logits[:,:,h:h+1,w:w+1], a_gt_mask, a_gt_mask_weight, mask_counter),
+                                     lambda : 0.0)
+                    # increase the counter if positive
+                    tmp_a_loss = tf.cond(is_positive,
+                                     lambda : self.incre_identity(increment_counter, a_loss), lambda :a_loss)
+                    mask_losses.append(tmp_a_loss)
+
+        # average mask loss
+        mask_loss = tf.add_n(mask_losses) / 13.0
+        # tf.summary.scalar(name='%s_mask' % scope, tensor=mask_loss)
+        print('Mask loss built.')
+
 
         ########################## total loss ##############################
-        total_loss = l2_total + score_loss
+        # total_loss = l2_total + alpha * score_loss + bete * mask_loss
+        total_loss = l2_total + alpha * score_loss
         tf.summary.scalar(name='%s_total_loss' % scope, tensor=total_loss)
 
         return total_loss
+
+    def incre_identity(self, incre_op, tensor):
+
+        with tf.control_dependencies([incre_op]):
+            my_tensor = tf.identity(tensor)
+
+        return my_tensor
+
+    def get_mask_loss(self, mask_logits, gt_mask, mask_weight, idx):
+        '''
+        :param mask_logits: [1,63*63,1,1], tf.float32
+        :param gt_mask: [1,13,127,127], tf.int32
+        :param mask_weight: [1,13,127,127], tf.float32
+        :param idx: indicates which gt mask to use
+        :return: weighted binary cross-entropy loss
+        '''
+
+        # reshape, resize logits
+        logits = tf.squeeze(tf.transpose(mask_logits, [0, 2, 3, 1]), axis=[0,1,2]) # [63*63]
+        logits = tf.expand_dims(tf.expand_dims(tf.reshape(logits, [63, 63]), 0), -1) # [1,63,63,1]
+        logits_resized = tf.image.resize_bilinear(logits, [127, 127]) # [1,127,127,1], tf.float32
+
+        # extract gt_mask, mask_weight according to idx
+        a_gt_mask = gt_mask[:,idx:idx+1,:,:] # [1,1,127,127], tf.int32
+        a_mask_weight = mask_weight[:,idx:idx+1,:,:] # [1,1,127,127], tf.float32
+
+        # compute cross-entropy
+        mask_loss = self.balanced_softmax_cross_entropy(logits=tf.transpose(logits_resized, [0, 3, 1, 2]),
+                                                        gt=a_gt_mask,
+                                                        weight=a_mask_weight)
+
+        return mask_loss
 
 
     def loss(self, score_map, score_gt, score_weight, lambda_score, mask_map, mask_gt, mask_weight, lambda_mask, scope):

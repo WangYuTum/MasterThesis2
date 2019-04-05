@@ -379,10 +379,13 @@ def batch_norm(inputs, training, momentum, epsilon, data_format, in_num_filters=
             update_var_op = moving_averages.assign_moving_average(moving_variance, batch_variance, momentum)
             # in this case, moving statistic must be updated outside in train loop
             if tf.get_variable_scope().name.find('backbone') == -1: # head scope
-                tf.add_to_collection('head_stat', [update_mean_op, update_var_op])
-                tf.add_to_collection('all_stat', [update_mean_op, update_var_op])
+                tf.add_to_collection('head_stat', update_mean_op)
+                tf.add_to_collection('head_stat', update_var_op)
+                tf.add_to_collection('all_stat', update_mean_op)
+                tf.add_to_collection('all_stat', update_var_op)
             else: # in backbone scope
-                tf.add_to_collection('all_stat', [update_mean_op, update_var_op])
+                tf.add_to_collection('all_stat', update_mean_op)
+                tf.add_to_collection('all_stat', update_var_op)
             #with tf.control_dependencies([update_mean_op, update_var_op]):
             #    inputs = tf.identity(inputs)
 
@@ -404,8 +407,12 @@ def get_resnet50v2_backbone_vars():
     backbone_dict = {}
 
     # the init 7x7 conv
-    with tf.variable_scope('backbone', reuse=True):
-        backbone_dict['backbone/kernel'] = tf.get_variable('kernel', trainable=True)
+    #with tf.variable_scope('backbone', reuse=True):
+    #    backbone_dict['backbone/kernel'] = tf.get_variable('kernel', trainable=True)
+    with tf.variable_scope('search_begin', reuse=True):
+        backbone_dict['search_begin/kernel'] = tf.get_variable('kernel', trainable=True)
+    with tf.variable_scope('temp_begin', reuse=True):
+        backbone_dict['temp_begin/kernel'] = tf.get_variable('kernel', trainable=True)
     # C2 - first_block - shortcut
     with tf.variable_scope('backbone/C2/block1/shortcut', reuse=True):
         backbone_dict['backbone/C2/block1/shortcut/kernel'] = tf.get_variable('kernel', trainable=True)
@@ -459,6 +466,7 @@ def get_resnet50v2_backbone_vars():
     return backbone_dict
 
 def get_siamfc_vars(trainable=False):
+    # TODO: network structure changed: mask branch added
     '''
     Get a list of vars to restore SiamFC weights (from init_conv to pyramid outs)
     :return: var dict
