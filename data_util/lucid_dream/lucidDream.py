@@ -1,7 +1,11 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import cv2
 import numpy as np 
 
-def dreamData(img, gt, bgimg, consequent_frames):
+def dreamData(img, gt, bgimg, consequent_frames, dilate_mask):
     if isinstance(bgimg,str):
         back_img=cv2.imread(bgimg)
     else:
@@ -9,31 +13,24 @@ def dreamData(img, gt, bgimg, consequent_frames):
     if img.ndim==2 or img.shape[2]==1:
         img=np.dstack((img,)*3)
 
-    object_ids=np.unique(gt) # ids might be already scaled to [0, 255]
+    object_ids=np.unique(gt) # ids range: [0, 1, 2, ..., N] where 0 indicates background
     if object_ids[0]==0:
-        num_objects = len(object_ids[1:])
-        # convert from [0, 255] to [1, ... M]
-        object_pixel_vals = object_ids[1:]
-        object_ids = [id+1 for id in range(num_objects)]
+        object_ids = object_ids[1:]
     else:
         raise ValueError('Mask background is not 0, instead is {}'.format(object_ids[0]))
 
     # select random number of objects
-    number_of_objects=np.random.randint(object_ids[-1])+1
+    # number_of_objects=np.random.randint(object_ids[-1])+1
+    number_of_objects = np.random.randint(len(object_ids)) + 1
     mask_object_ids=np.random.choice(object_ids,number_of_objects,replace=False)
     mask_object_ids=np.sort(mask_object_ids)
-    # convert object pixels from [0, 255] to [1, ..., M]
-    gt_converted = gt.copy()
-    for obj_id in object_ids:
-        np.place(gt_converted, gt_converted == object_pixel_vals[obj_id-1], [obj_id])
-    mask = gt_converted.copy()
+    mask = gt.copy()
     # zero all not-selected pixels
     mask[np.isin(mask,mask_object_ids,invert=True)]=0
-
     org_back_img=back_img.copy()
-    seg=gt_converted.copy()
+    seg=gt.copy()
 
-    if np.random.randint(2):
+    if np.random.randint(2) and dilate_mask:
         kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
         dilmsk=cv2.dilate(mask,kernel)
         back_img[dilmsk==0]=img[dilmsk==0]
@@ -75,9 +72,10 @@ def dreamData(img, gt, bgimg, consequent_frames):
         mask_bg[mask_fg>0]=0
 
         back_img_obj_1=bg_1.copy()
-        kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
-        dilmsk=cv2.dilate(mask_fg,kernel)
-        back_img_obj_1[dilmsk==0]=im_1[dilmsk==0]
+        if dilate_mask:
+            kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(5,5))
+            dilmsk=cv2.dilate(mask_fg,kernel)
+            back_img_obj_1[dilmsk==0]=im_1[dilmsk==0]
 
         transf_id=np.random.randint(3)
         if transf_id<2:
@@ -214,6 +212,8 @@ def SeamlessClone_trimap(srcIm,dstIm,imMask,offX,offY):
     mask255=(mask255*255).astype('uint8')
 
     offCenter=(int(offX+imMask.shape[1]/2),int(offY+imMask.shape[0]/2))
+    # make sure offcenter is within the boundary
+
 
     if np.any(bdmsk>0):
         outputIm=cv2.seamlessClone(srcIm,dstIm,mask255,offCenter,cv2.MIXED_CLONE)

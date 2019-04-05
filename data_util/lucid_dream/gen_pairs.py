@@ -34,15 +34,17 @@ def gen_pairs(in_img, in_mask, in_palette, num_pairs, start_id, save_dir, stat_l
 
     if bg_img is None:
         bg = paint(in_img, np.array(in_mask), False)
+        dilate_mask = True
     else:
         bg = bg_img
+        dilate_mask = False
 
     for i in range(num_pairs):
         img1_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'L.jpg')
         img2_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'R.jpg')
         gt1_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'L.png')
         gt2_save_name = os.path.join(save_dir, str(i+start_id).zfill(5) + 'R.png')
-        im_1, gt_1, im_2, gt_2 = dreamData(in_img, np.array(in_mask), bg, True)
+        im_1, gt_1, im_2, gt_2 = dreamData(in_img, np.array(in_mask), bg, True, dilate_mask)
 
         # save images, rgb order on disk
         cv2.imwrite(img1_save_name, im_1)
