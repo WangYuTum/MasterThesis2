@@ -153,6 +153,48 @@ def filter_empty(parsed_dict):
 
     return keep_bool
 
+
+def filter_pre(parsed_dict):
+    object_id = tf.cast(parsed_dict['object_id'], tf.uint8)
+    templar_img = parsed_dict['templar_img']
+    search_img = parsed_dict['search_img']
+    img_h = parsed_dict['img_h']
+    img_w = parsed_dict['img_w']
+    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(templar_img)[0], tf.cast(img_h, tf.int32)),
+                                  tf.debugging.assert_equal(tf.shape(templar_img)[1], tf.cast(img_w, tf.int32)),
+                                  tf.debugging.assert_equal(tf.shape(search_img)[0], tf.cast(img_h, tf.int32)),
+                                  tf.debugging.assert_equal(tf.shape(search_img)[1], tf.cast(img_w, tf.int32))]):
+        # extract binary object mask given object_id
+        templar_mask = tf.cast(tf.math.equal(parsed_dict['templar_mask'], object_id), tf.uint8)
+        search_mask = tf.cast(tf.math.equal(parsed_dict['search_mask'], object_id), tf.uint8)
+
+    # check if dim of object in templar image are too small in both height and width
+    templar_bbox = bbox_from_mask(templar_mask)  # [xmin, ymin, xmax, ymax]
+    search_bbox = bbox_from_mask(templar_mask)  # [xmin, ymin, xmax, ymax]
+    temp_h = templar_bbox[3] - templar_bbox[1]
+    temp_w = templar_bbox[2] - templar_bbox[0]
+    bool0 = tf.greater_equal(temp_h, 16)
+    bool1 = tf.greater_equal(temp_w, 16)
+    bool_temp = tf.logical_and(x=bool0, y=bool1)
+    search_h = search_bbox[3] - search_bbox[1]
+    search_w = search_bbox[2] - search_bbox[0]
+    bool0 = tf.greater_equal(search_h, 16)
+    bool1 = tf.greater_equal(search_w, 16)
+    bool_search = tf.logical_and(x=bool0, y=bool1)
+    bool_bbox = tf.logical_and(x=bool_temp, y=bool_search)
+
+    # check if templar_mask and search_mask are too small
+    sum_templar = tf.math.reduce_sum(tf.cast(templar_mask, tf.int32))
+    sum_search = tf.math.reduce_sum(tf.cast(search_mask, tf.int32))
+    bool0 = tf.greater_equal(sum_templar, 16 * 16)
+    bool1 = tf.greater_equal(sum_search, 16 * 16)
+    bool_mask = tf.logical_and(x=bool0, y=bool1)
+
+    valid_bool = tf.logical_and(x=bool_bbox, y=bool_mask)
+
+    return valid_bool
+
+
 def parse_record(parsed_dict, dtype):
     """Parses a record containing a training example of templar/search image pair.
     The image buffers are passed to be pre-processed
@@ -166,7 +208,7 @@ def parse_record(parsed_dict, dtype):
     templar_img_mask, search_img_mask, score, score_weight, gt_masks, tight_temp_bbox, tight_search_bbox, \
     gt_masks_weight= preprocess_pair(
         templar_img=parsed_dict['templar_img'], search_img=parsed_dict['search_img'],
-        templar_mask=parsed_dict['templar_mask'], search_mask=parsed_dict['search_mask'],
+        templar_mask_in=parsed_dict['templar_mask'], search_mask_in=parsed_dict['search_mask'],
         object_id=parsed_dict['object_id'], num_channels=_NUM_CHANNELS,
         img_h=parsed_dict['img_h'], img_w=parsed_dict['img_w'])
 
@@ -283,7 +325,8 @@ def preprocess_pair_test(templar_buffer, search_buffer, templar_mask_buffer, sea
 
     return templar_img, search_img, score, score_weight, gt_masks, tight_temp_bbox, tight_search_bbox
 
-def preprocess_pair(templar_img, search_img, templar_mask, search_mask, object_id, num_channels, img_h, img_w):
+
+def preprocess_pair(templar_img, search_img, templar_mask_in, search_mask_in, object_id, num_channels, img_h, img_w):
     """Preprocesses the give templar/search image buffers and the corresponding masks.
     Args:
     templar_img: decoded JPEG image
@@ -305,11 +348,17 @@ def preprocess_pair(templar_img, search_img, templar_mask, search_mask, object_i
     """
 
     object_id = tf.cast(object_id, tf.uint8)
-    with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(templar_img)[0], tf.cast(img_h, tf.int32)),
-                                  tf.debugging.assert_equal(tf.shape(templar_img)[1], tf.cast(img_w, tf.int32))]):
-        # extract binary object mask given object_id
-        templar_mask = tf.cast(tf.math.equal(templar_mask, object_id), tf.uint8)
-        search_mask = tf.cast(tf.math.equal(search_mask, object_id), tf.uint8)
+    # extract binary object mask given object_id
+    templar_mask = tf.cast(tf.math.equal(templar_mask_in, object_id), tf.uint8)
+    search_mask = tf.cast(tf.math.equal(search_mask_in, object_id), tf.uint8)
+
+    # check if templar_mask and search_mask are too small
+    sum_templar = tf.math.reduce_sum(tf.cast(templar_mask, tf.int32))
+    sum_search = tf.math.reduce_sum(tf.cast(search_mask, tf.int32))
+    with tf.control_dependencies([tf.debugging.assert_greater_equal(sum_templar, 16 * 16),
+                                  tf.debugging.assert_greater_equal(sum_search, 16 * 16)]):
+        templar_mask = tf.identity(templar_mask)
+        search_mask = tf.identity(search_mask)
 
     ######################################## Process Templar #############################################
     # get mean rgb in case of padding
@@ -698,6 +747,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
         subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*2) # prefetch
         subset[gpu_id] = subset[gpu_id].map(parse_raw, num_parallel_calls=4) # parallel parse 4 examples at once
         subset[gpu_id] = subset[gpu_id].filter(filter_empty) # filter empty masks
+        subset[gpu_id] = subset[gpu_id].filter(filter_pre)  # filter small masks/bbox
         subset[gpu_id] = subset[gpu_id].map(parse_func, num_parallel_calls=4) # parallel parse 4 examples at once
         subset[gpu_id] = subset[gpu_id].filter(filter_bbox)  # filter tiny bbox
         subset[gpu_id] = subset[gpu_id].filter(filter_mask) # filter tiny masks
