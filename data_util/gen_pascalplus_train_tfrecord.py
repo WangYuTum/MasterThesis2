@@ -15,10 +15,10 @@ from random import shuffle
 import numpy as np
 from PIL import Image
 
-_NUM_PAIRS = 0 # TODO valid number of pairs is:
-_NUM_SHARDS = 0 #
-_PAIRS_PER_FILE = 0 #
-_PAIRS_LAST_FILE = 0 #
+_NUM_PAIRS = 53354  # valid number of pairs is: 53354
+_NUM_SHARDS = 64  #
+_PAIRS_PER_FILE = 834  # 834 x 63 = 52542
+_PAIRS_LAST_FILE = 812
 
 class ImageCoder():
     def __init__(self):
@@ -215,8 +215,8 @@ def main(args):
         sys.exit(0)
     if num_shards != _NUM_SHARDS:
         raise ValueError('Number of shards must be {}'.format(_NUM_SHARDS))
-    pairs_list = get_pairs_list(source_dir)  # TODO: should be 285849 pairs
-    shards_per_proc = int(num_shards / num_proc)  # TODO: should be 256/4=64 by default
+    pairs_list = get_pairs_list(source_dir)  # should be 53354 pairs
+    shards_per_proc = int(num_shards / num_proc)  # should be 64/4=16 by default
     # use GPUs
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
