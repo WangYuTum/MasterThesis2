@@ -168,8 +168,8 @@ class ResNetSiam():
             cc_out1 = tf.nn.relu(cc_out1)
             with tf.variable_scope('conv5'):
                 mask = nn.conv_layer(inputs=cc_out1, filters=[256, 256], kernel_size=1,
-                                      stride=1, l2_decay=self.l2_weight_, training=training,
-                                      data_format=self.data_format_, pad='VALID', dilate_rate=1)
+                                     stride=1, l2_decay=self.l2_weight_, training=training,
+                                     data_format=self.data_format_, pad='VALID', dilate_rate=1)  # [batch, 256, 17, 17]
             # conv6
             with tf.variable_scope('conv6'):
                 mask = nn.conv_layer(inputs=mask, filters=[256, 63*63], kernel_size=1,
@@ -251,86 +251,51 @@ class ResNetSiam():
 
 
         ########################## Loss for Mask ##############################
-        # TODO: add mask loss to total loss
         # only compute loss for positive positions
         # score_gt: [n, 1, 17, 17], tf.int32
         # mask_logits: [n, 63*63, 17, 17], tf.float32
         # gt_mask: [n, 13, 127, 127], tf.int32
         # gt_mask_weights: [n, 13, 127, 127], tf.float32
-        mask_losses = []
-        # for each batch
-        for batch_i in range(batch):
-            tower_context = tf.get_default_graph().get_name_scope()
-            with tf.variable_scope(tower_context, reuse=False):
-                mask_counter = tf.get_variable(name='mask_counter_%s_%i' %(scope, batch_i), shape=[], dtype=tf.int32,
-                                               initializer=tf.zeros_initializer(), trainable=False)
-            increment_counter = tf.assign(mask_counter, mask_counter + 1)
-            reset_counter = tf.assign(mask_counter, 0)
-            # set counter to 0 before looping all positions
-            with tf.control_dependencies([reset_counter]):
-                tmp_score_gt = tf.identity(score_gt)
-            a_score_gt = tmp_score_gt[batch_i:batch_i+1,:,:,:] # [1,1,17,17], tf.int32
-            a_mask_logits = mask_logits[batch_i:batch_i+1,:,:,:] # [1,63*63,17,17], tf.float32
-            a_gt_mask = gt_mask[batch_i:batch_i+1,:,:,:] # [1,13,127,127], tf.int32
-            a_gt_mask_weight = gt_mask_weights[batch_i:batch_i+1,:,:,:] # [1,13,127,127], tf.float32
-            # for all positions
-            for h in range(17):
-                for w in range(17):
-                    # check if current position is positive
-                    is_positive = tf.equal(tf.squeeze(a_score_gt[:,:,h:h+1,w:w+1]), 1)
-                    # compute loss if positive, otherwise return 0
-                    a_loss = tf.cond(is_positive,
-                                     lambda : self.get_mask_loss(a_mask_logits[:,:,h:h+1,w:w+1], a_gt_mask, a_gt_mask_weight, mask_counter),
-                                     lambda : 0.0)
-                    # increase the counter if positive
-                    tmp_a_loss = tf.cond(is_positive,
-                                     lambda : self.incre_identity(increment_counter, a_loss), lambda :a_loss)
-                    mask_losses.append(tmp_a_loss)
 
-        # average mask loss
-        mask_loss = tf.add_n(mask_losses) / 13.0
-        # tf.summary.scalar(name='%s_mask' % scope, tensor=mask_loss)
+        ## get positive positions as boolean mask
+        bool_mask = tf.math.equal(score_gt, 1)  # [n, 1, 17, 17], tf.bool
+        bool_mask = tf.squeeze(tf.transpose(bool_mask, [0, 2, 3, 1]), -1)  # [n,17,17], tf.bool, n*13 true values
+        ## extract mask_logits according to boolean mask, and upsample to 127x127
+        mask_logits = tf.transpose(mask_logits, [0, 2, 3, 1])  # [n,17,17,63*63], tf.float32
+        logits_posi = tf.boolean_mask(tensor=mask_logits, mask=bool_mask, name='boolean_mask_logits',
+                                      axis=None)  # [n*13, 63*63]
+        # upsample logits
+        logits_posi = tf.reshape(logits_posi, [batch * 13, 63, 63])  # [n*13, 63, 63]
+        logits_posi = tf.expand_dims(logits_posi, -1)  # [n*13, 63, 63, 1]
+        logits_resized = tf.image.resize_bilinear(logits_posi, [127, 127])  # [n*13,127,127,1]
+        tf.summary.image(name='mask_logits', tensor=logits_resized, max_outputs=9)
+        logits_resized = tf.squeeze(logits_resized, -1)  # [n*13,127,127]
+        ## prepare gt/weights
+        gt_mask = tf.reshape(gt_mask, [batch * 13, 127, 127])  # [n*13, 127,127]
+        # tf.summary.image(name='gt_masks', tensor=tf.cast(tf.expand_dims(gt_mask, -1)*192, tf.uint8), max_outputs=9)
+        gt_mask_weights = tf.reshape(gt_mask_weights, [batch * 13, 127, 127])  # [n*13, 127,127]
+        ### prepare to feed entropy: reshape -> flatten
+        old_shape = tf.shape(logits_resized)
+        new_shape = [old_shape[0], old_shape[1] * old_shape[2]]
+        logits = tf.reshape(logits_resized, new_shape)  # [n*13, 127*127]
+        gt = tf.reshape(gt_mask, new_shape)  # [n*13, 127*127]
+        weight = tf.reshape(gt_mask_weights, new_shape)  # [n*13, 127*127]
+        # compute loss
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(gt, tf.float32), logits=logits)  # [n*13, h*w]
+        balanced_loss = tf.multiply(loss, weight)  # [n*13, h*w]
+        balanced_loss = tf.reduce_sum(balanced_loss, axis=1)  # compute sum of weighted loss for each batch
+        mask_loss = tf.reduce_mean(balanced_loss)
+        tf.summary.scalar(name='%s_mask' % scope, tensor=mask_loss)
         print('Mask loss built.')
 
 
         ########################## total loss ##############################
-        # total_loss = l2_total + alpha * score_loss + bete * mask_loss
-        total_loss = l2_total + alpha * score_loss
-        tf.summary.scalar(name='%s_total_loss' % scope, tensor=total_loss)
+        loss_with_mask = l2_total + alpha * score_loss + bete * mask_loss
+        loss_no_mask = l2_total + alpha * score_loss
+        tf.summary.scalar(name='%s_total_with_mask' % scope, tensor=loss_with_mask)
+        tf.summary.scalar(name='%s_total_no_mask' % scope, tensor=loss_no_mask)
 
-        return total_loss
-
-    def incre_identity(self, incre_op, tensor):
-
-        with tf.control_dependencies([incre_op]):
-            my_tensor = tf.identity(tensor)
-
-        return my_tensor
-
-    def get_mask_loss(self, mask_logits, gt_mask, mask_weight, idx):
-        '''
-        :param mask_logits: [1,63*63,1,1], tf.float32
-        :param gt_mask: [1,13,127,127], tf.int32
-        :param mask_weight: [1,13,127,127], tf.float32
-        :param idx: indicates which gt mask to use
-        :return: weighted binary cross-entropy loss
-        '''
-
-        # reshape, resize logits
-        logits = tf.squeeze(tf.transpose(mask_logits, [0, 2, 3, 1]), axis=[0,1,2]) # [63*63]
-        logits = tf.expand_dims(tf.expand_dims(tf.reshape(logits, [63, 63]), 0), -1) # [1,63,63,1]
-        logits_resized = tf.image.resize_bilinear(logits, [127, 127]) # [1,127,127,1], tf.float32
-
-        # extract gt_mask, mask_weight according to idx
-        a_gt_mask = gt_mask[:,idx:idx+1,:,:] # [1,1,127,127], tf.int32
-        a_mask_weight = mask_weight[:,idx:idx+1,:,:] # [1,1,127,127], tf.float32
-
-        # compute cross-entropy
-        mask_loss = self.balanced_softmax_cross_entropy(logits=tf.transpose(logits_resized, [0, 3, 1, 2]),
-                                                        gt=a_gt_mask,
-                                                        weight=a_mask_weight)
-
-        return mask_loss
+        return loss_with_mask, loss_no_mask
 
 
     def loss(self, score_map, score_gt, score_weight, lambda_score, mask_map, mask_gt, mask_weight, lambda_mask, scope):

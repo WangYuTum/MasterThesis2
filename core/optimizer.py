@@ -17,8 +17,8 @@ def lr_scheduler(base_lr, batches_per_epoch, batch_size, global_step, bnorm):
     '''
     init_lr = base_lr
     warmup_lr = init_lr / 5.0
-    boundary_epochs = [1, 2, 3, 4, 5, 15, 25, 35, 45]
-    decay_rates = [1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 0.5*5.0, 0.25*5.0, 0.125*5.0, 0.0625*5.0]
+    boundary_epochs = [1, 2, 3, 4, 5, 10, 15, 25, 35, 45]
+    decay_rates = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 0.5 * 5.0, 0.25 * 5.0, 0.125 * 5.0, 0.0625 * 5.0]
 
     boundaries = [int(batches_per_epoch * epoch) for epoch in boundary_epochs] # units in iterations
     vals = [warmup_lr * decay for decay in decay_rates]

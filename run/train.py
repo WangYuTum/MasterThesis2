@@ -23,9 +23,9 @@ import time
 
 _NUM_TRAIN = 272459 # TODO: number of valid training pairs, 272459-YoutubeVOS
 _TRAINING = True
-_NUM_GPU = 1
+_NUM_GPU = 2
 _NUM_SHARDS = 256 # TODO: number of tfrecords, 256-YoutubeVOS
-_BATCH_SIZE = 2 # how many pairs per iter
+_BATCH_SIZE = 16  # how many pairs per iter
 _PAIRS_PER_EP = 250000 # TODO: number of pairs per ep, 250000-YoutubeBOS
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 35
@@ -47,7 +47,7 @@ _DATA_SOURCE =  '/storage/slurm/wangyu/youtube_vos/tfrecord_train' # TODO: Youbu
 _SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/youtube_vos_sgd/youtube_vos_sgd.ckpt'
 _SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/youtube_vos_sgd/'
 _SAVE_CHECKPOINT_EP = 1
-_SAVE_SUM_ITER = 1
+_SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
 config_gpu.gpu_options.allow_growth = True
 
@@ -129,7 +129,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     #search_mask_center = get_mask_center(search_img_mask[:,4:5,:,:], batch=_BATCH_PER_GPU) # [n, 2]
                     #masked_search_seg = blend_search_seg_mask(img_search=search_img_mask[:,0:3,:,:], gt_masks=gt_masks,
                     #                                          centers=search_mask_center, batch=_BATCH_PER_GPU) # [n*13, 127, 127, 3]
-                    #tf.summary.image(name='search_seg_mask', tensor=masked_search_seg, max_outputs=5)
+                    # tf.summary.image(name='search_seg_mask', tensor=masked_search_seg, max_outputs=9)
                     tf.summary.image(name='score',
                                      tensor=tf.transpose(tf.cast(score, tf.uint8) * 255, [0, 2, 3, 1]))
 
@@ -145,10 +145,14 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     score_logits, mask_logits = model.build_cc_mask(z_feat=z_feat, x_feat=x_feat, training=_TRAINING)
                     ################# summaries #################
                     tf.summary.image(name='logits', tensor=tf.transpose(score_logits, [0,2,3,1]))
-                    loss = model.loss_score_mask(batch=_BATCH_PER_GPU, score_map=score_logits, score_gt=score,
+                    loss_mask, loss_score = model.loss_score_mask(batch=_BATCH_PER_GPU, score_map=score_logits,
+                                                                  score_gt=score,
                                                  score_weight=score_weight, mask_logits=mask_logits, gt_mask=gt_masks,
-                                                 gt_mask_weights=gt_masks_weight, alpha=1.0, bete=32.0, scope=scope)
-                    # TODO: visualize mask logists
+                                                                  gt_mask_weights=gt_masks_weight, alpha=1.0, bete=1.0,
+                                                                  scope=scope)
+                    # minimize score loss for 0-5 ep, minimize mask loss for 5-10 ep, minimize all after 10 ep
+                    loss = tf.cond(tf.math.greater(global_step, iters_per_epoch * 5), lambda: loss_mask,
+                                   lambda: loss_score)
                     tower_loss.append(tf.expand_dims(loss, 0))
                     print('Model built on tower_{}'.format(gpu_id))
 
@@ -223,16 +227,13 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
         for ep_i in range(_EPOCHS + _WARMUP_EP):
             print('Epoch {}'.format(ep_i))
             for iter_i in range(iters_per_epoch):
-                """
-                if global_step.eval() - 1 < iters_per_epoch * 2: # 2 eps for warm up
-                    _, loss_v = sess.run([update_head, avg_loss])
+                if global_step.eval() - 1 < iters_per_epoch * 10:  # don't update backbone for 0-10ep
+                    _, loss_v, summary_out = sess.run([update_head, avg_loss, summary_op])
                 else:
-                    _, loss_v = sess.run([update_all, avg_loss])
-                """
-                #_, loss_v = sess.run([update_all, avg_loss])
-                _, loss_v, summary_out = sess.run([update_all, avg_loss, summary_op])
+                    _, loss_v, summary_out = sess.run([update_all, avg_loss, summary_op])
+                #_, loss_v, summary_out = sess.run([update_head, avg_loss, summary_op])
                 # print loss
-                if iter_i % 1 == 0:
+                if iter_i % 20 == 0:
                     print('iter: {}, avg loss: {}'.format(global_step.eval(), loss_v)) # global_step.eval()-1, loss_v
                 # write summary
                 if iter_i % _SAVE_SUM_ITER == 0 or iter_i ==0:
