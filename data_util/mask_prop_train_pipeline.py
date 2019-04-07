@@ -24,7 +24,7 @@ _G_MEAN = 116.78
 _B_MEAN = 103.94
 _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
 _NUM_TRAIN = 272459 # number of valid training pairs: 272459, num total pairs: 285849
-_NUM_SHARDS = 256 # number of tfrecords in total, each tfrecord has 1116 or 1269 pairs
+_NUM_SHARDS = 64  # number of tfrecords: YoutubeVOS(256), PascalPlus(64)
 
 """
 The tfrecord files must provide the following contents, each example have:
@@ -73,6 +73,7 @@ Images undergo mean color subtraction from ImageNet12.
 def get_filenames(data_dir):
     """Return filenames for dataset."""
 
+    print('Detect {} tfrecords.'.format(len(os.listdir(data_dir))))
     return [os.path.join(data_dir, 'train_'+str(shard_id)+'.tfrecord') for shard_id in range(_NUM_SHARDS)]
 
 def parse_func(parsed_dict):
@@ -733,7 +734,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
 
     # create dataset, reading all train tfrecord files, default number of files = _NUM_SHARDS
     dataset = tf.data.Dataset.list_files(file_pattern=file_list, shuffle=False)
-    dataset = dataset.shuffle(buffer_size=_NUM_SHARDS)
+    # dataset = dataset.shuffle(buffer_size=_NUM_SHARDS)
     # seperate a unique part of the dataset according to number of gpus
     for gpu_id in range(num_gpu):
         subset.append(dataset.shard(num_shards=num_gpu, index=gpu_id))
@@ -755,8 +756,8 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=6000)
-        subset[gpu_id] = subset[gpu_id].repeat()
+        # subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=6000)
+        #subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs
         subset[gpu_id] = subset[gpu_id].prefetch(buffer_size=batch_size*2)
