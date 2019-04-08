@@ -34,7 +34,7 @@ def main():
     aug_dirs = sorted([os.path.join(data_dir, obj_dir_name) for obj_dir_name in os.listdir(data_dir) if \
                        os.path.isdir(os.path.join(data_dir, obj_dir_name))])
     if len(aug_dirs) != NUM_SEG_TRAINVAL:
-        raise ValueError('Num of obj_dirs {} != num of objects {}'.format(len(aug_dirs), NUM_SEG_TRAINVAL))
+        print('Num of obj_dirs {} != num of expected {}'.format(len(aug_dirs), NUM_SEG_TRAINVAL))
 
     # sampling
     sample_list = []
