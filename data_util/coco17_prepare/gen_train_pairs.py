@@ -32,7 +32,7 @@ imgDir = '/storage/slurm/wangyu/coco/images/'
 SAVE_DIR = '/storage/slurm/wangyu/coco/Augmented/'
 NUM_SEG_TRAIN = 118287
 NUM_SEG_VAL = 5000
-NUM_AUG_IMG = 50000
+NUM_AUG_IMG = 100000
 
 def gen_palette():
     # generate a palette of 64 colors
@@ -108,7 +108,8 @@ def get_coco():
         # checks
         obj_ids = np.unique(mask)
         if not (0 in obj_ids):
-            raise ValueError('No background in {}'.format(img_dict['file_name']))
+            print('No background in {}'.format(img_dict['file_name']))
+            continue
         if len(obj_ids) > 6 or len(obj_ids) < 2:
             print('Num of obj_ids is {}, {} in {}'.format(len(obj_ids), obj_ids, img_dict['file_name']))
             continue
