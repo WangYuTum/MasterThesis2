@@ -10,10 +10,12 @@
  Sampling procedure:
     for each obj_dir:                                                   --> 2913
         randomly select 10 pairs out of 50:                             --> 10
-            randomly select 2 object_id if num of object >=2            --> 2 or
+            randomly select 5 object_id if num of object >=5            --> 5 or
             select object_id=1 if num of object == 1                    --> 1
 
-After the sampling, there will be 29130 ~ 58260 training pairs
+After the sampling, there will be 29130 ~ 145650 training pairs
+
+Actually sampled 53619 pairs.
 '''
 
 
@@ -74,21 +76,28 @@ def main():
             seg_idsR = np.unique(np.array(Image.open(segR)))
             if len(seg_idsL) < 2:
                 raise ValueError('Number of seg_ids {} less than 2 for {}'.format(seg_idsL, segL))
-            if seg_idsL != seg_idsR:
-                raise ValueError('seg_idsL {} != seg_idsR {} for {}'.format(seg_idsL, seg_idsR, segL))
-            if (not 0 in seg_idsL) or (not 1 in seg_idsL):
+            if not np.array_equal(seg_idsL, seg_idsR):
+                # print('seg_idsL {} != seg_idsR {} for {}'.format(seg_idsL, seg_idsR, segL))
+                # get intersection over the two
+                seg_idsL = list(set(seg_idsL) & set(seg_idsR))
+            if (not 0 in seg_idsL):  # 0 must be in label list, the labels might not start from 1
                 raise ValueError('Seg labels {} not valid for {}'.format(seg_idsL, segL))
             # get number of objects in this training pair
             num_objs = len(seg_idsL) - 1
+            if num_objs < 1:
+                print('Num of objects {} < 1 in {}'.format(num_objs, segL))
+                continue
             if num_objs == 1:
-                # only a single object, check/set object_id=1, and save the pair
-                if seg_idsL[-1] != 1:
-                    raise ValueError('Object id {} != 1 for {}'.format(seg_idsL[-1], segL))
-                sample_list.append([imgL, segL, imgR, segR, 1])
+                # only a single object, check object_id!=0, and save the pair
+                if seg_idsL[-1] == 0:
+                    raise ValueError('Object id {} == 0 for {}'.format(seg_idsL[-1], segL))
+                sample_list.append([imgL, segL, imgR, segR, seg_idsL[-1]])
                 count += 1
             else:
-                # has >=2 objects within the pair, randomly pick two object_id
-                obj_ids = np.random.shuffle(seg_idsL[1:])[0:2] # picking 2 object_id
+                # has >=2 objects within the pair, randomly pick 5 object_id
+                rand_seg_idsL = seg_idsL[1:]
+                np.random.shuffle(rand_seg_idsL)
+                obj_ids = rand_seg_idsL[0:5]  # picking 5 object_id
                 for obj_id in obj_ids:
                     sample_list.append([imgL, segL, imgR, segR, obj_id])
                     count += 1

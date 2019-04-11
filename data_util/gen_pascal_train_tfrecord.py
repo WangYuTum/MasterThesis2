@@ -15,10 +15,10 @@ from random import shuffle
 import numpy as np
 from PIL import Image
 
-_NUM_PAIRS = 0 # TODO valid number of pairs is:
-_NUM_SHARDS = 0 #
-_PAIRS_PER_FILE = 0 #
-_PAIRS_LAST_FILE = 0 #
+_NUM_PAIRS = 53619  # valid number of pairs is: 53619
+_NUM_SHARDS = 64  #
+_PAIRS_PER_FILE = 838  # 838 x 63 = 52794
+_PAIRS_LAST_FILE = 825  # 825
 
 class ImageCoder():
     def __init__(self):
@@ -215,8 +215,8 @@ def main(args):
         sys.exit(0)
     if num_shards != _NUM_SHARDS:
         raise ValueError('Number of shards must be {}'.format(_NUM_SHARDS))
-    pairs_list = get_pairs_list(source_dir)  # TODO: should be 285849 pairs
-    shards_per_proc = int(num_shards / num_proc)  # TODO: should be 256/4=64 by default
+    pairs_list = get_pairs_list(source_dir)  # should be 53619 pairs
+    shards_per_proc = int(num_shards / num_proc)  # should be 64/4=16 by default
     # use GPUs
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -255,7 +255,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--source_dir', dest='source_dir',
                             default='/storage/slurm/wangyu/PascalVOC12/')
     arg_parser.add_argument('--out-dir', dest='out_dir', default='/storage/slurm/wangyu/PascalVOC12/tfrecord_train/')
-    arg_parser.add_argument('--num-proc', dest='num_proc', type=int, default=4)
+    arg_parser.add_argument('--num-proc', dest='num_proc', type=int, default=8)
     arg_parser.add_argument('--num-shards', dest='num_shards', default=_NUM_SHARDS)
 
     args = arg_parser.parse_args()
