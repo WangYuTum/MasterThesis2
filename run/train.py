@@ -23,9 +23,9 @@ import time
 
 _NUM_TRAIN = 272459 # TODO: number of valid training pairs, 272459-YoutubeVOS
 _TRAINING = True
-_NUM_GPU = 2
+_NUM_GPU = 4
 _NUM_SHARDS = 256 # TODO: number of tfrecords, 256-YoutubeVOS
-_BATCH_SIZE = 16  # how many pairs per iter
+_BATCH_SIZE = 64  # how many pairs per iter
 _PAIRS_PER_EP = 250000 # TODO: number of pairs per ep, 250000-YoutubeBOS
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 35
