@@ -23,8 +23,8 @@ _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
 _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-_NUM_TRAIN = 272459 # number of valid training pairs: 272459, num total pairs: 285849
-_NUM_SHARDS = 256  # number of tfrecords: YoutubeVOS(256), PascalPlus(64)
+_NUM_TRAIN = 379432  # number of valid training pairs: YoutubeVOS(272459), PascalPlus(53354), Pascal(53619)
+_NUM_SHARDS = 384  # number of tfrecords: YoutubeVOS(256), PascalPlus(64), Pascal(64)
 
 """
 The tfrecord files must provide the following contents, each example have:
@@ -74,7 +74,7 @@ def get_filenames(data_dir):
     """Return filenames for dataset."""
 
     print('Detect {} tfrecords.'.format(len(os.listdir(data_dir))))
-    return [os.path.join(data_dir, 'train_'+str(shard_id)+'.tfrecord') for shard_id in range(_NUM_SHARDS)]
+    return [os.path.join(data_dir, file_name) for file_name in os.listdir(data_dir)]
 
 def parse_func(parsed_dict):
     """
@@ -712,9 +712,9 @@ def reformat_channel_first(example_dict):
 
 
 ########################################################################
-# Build TF Dataset of ImageNet15-VID train pipeline
+# Build TF Dataset of bbox-mask train pipeline
 ########################################################################
-def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wangyu/youtube_vos/tfrecord_train',
+def build_dataset(num_gpu=2, batch_size=8, train_record_dirs=None,
                   data_format='channels_first'):
     """
     Note that though each gpu process a unique part of the dataset, the data pipeline is built
@@ -722,14 +722,17 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
 
     :param num_gpu: total number of gpus, each gpu will be assigned to a unique part of the dataset
     :param batch_size: batch of images processed on each gpu
-    :param train_record_dir: where the tfrecord files are stored
+    :param train_record_dirs: where the tfrecord files are stored, a list of dirs
     :param data_format: must be 'channels_first' when using gpu
     :return: a list of sub-dataset for each different gpu
     """
 
-
-    file_list = get_filenames(train_record_dir)
-    print('Got {} tfrecords.'.format(len(file_list)))
+    if (not train_record_dirs) or (train_record_dirs is None):
+        raise ValueError('Dataset source dirs is empty!')
+    file_list = []
+    for s_dir in train_record_dirs:
+        file_list += get_filenames(s_dir)
+    print('Got {} tfrecords in total.'.format(len(file_list)))
     subset = []
 
     # create dataset, reading all train tfrecord files, default number of files = _NUM_SHARDS
@@ -756,7 +759,7 @@ def build_dataset(num_gpu=2, batch_size=8, train_record_dir='/storage/slurm/wang
             subset[gpu_id] = subset[gpu_id].map(reformat_channel_first, num_parallel_calls=4) # parallel parse 4 examples at once
         else:
             raise ValueError('Data format is not channels_first when building dataset pipeline!')
-        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=5000)
+        subset[gpu_id] = subset[gpu_id].shuffle(buffer_size=6000)
         subset[gpu_id] = subset[gpu_id].repeat()
         subset[gpu_id] = subset[gpu_id].batch(batch_size) # inference batch images for one feed-forward
         # prefetch and buffer internally, to prevent starvation of GPUs

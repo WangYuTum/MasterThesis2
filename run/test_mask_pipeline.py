@@ -21,10 +21,10 @@ from data_util.bbox_helper import blend_search_seg_mask
 from data_util.bbox_helper import get_mask_center
 import time
 
-_NUM_TRAIN = 53354  # number of training pairs: YoutubeVOS(272459), PascalPlus(53354)
+_NUM_TRAIN = 379432  # number of training pairs: YoutubeVOS(272459), PascalPlus(53354), Pascal(53619)
 _TRAINING = True
 _NUM_GPU = 1
-_NUM_SHARDS = 64  # number of tfrecords
+_NUM_SHARDS = 384  # number of tfrecords: YoutubeVOS(256), PascalPlus(64), Pascal(64)
 _BATCH_SIZE = 1 # how many pairs per iter, p6000_4x4: 128, titanx_4: 64
 _PAIRS_PER_EP = 50000*4 # ideal is 4000000/batch, but too large/long; take 50000 as fc-siam paper
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
@@ -43,9 +43,11 @@ else:
 
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
-_DATA_SOURCE = '/storage/slurm/wangyu/pascal_ecssd_mara_aug/tfrecord_train'
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/pascal_plus/gpu4_sgd.ckpt'
-_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/pascal_plus/'
+_DATA_SOURCE = ['/storage/slurm/wangyu/pascal_ecssd_mara_aug/tfrecord_train',
+                '/storage/slurm/wangyu/PascalVOC12/tfrecord_train',
+                '/storage/slurm/wangyu/youtube_vos/tfrecord_train']
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/all/gpu4_sgd.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/all/'
 _SAVE_CHECKPOINT_EP = 1
 _SAVE_SUM_ITER = 2
 config_gpu = tf.ConfigProto()
@@ -62,8 +64,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # Prepare data pipeline for multiple GPUs
     #######################################################################
     datasets = mask_prop_train_pipeline.build_dataset(num_gpu=_NUM_GPU,
-                                                      batch_size=_BATCH_PER_GPU, # how many pairs per GPU
-                                                      train_record_dir=_DATA_SOURCE,
+                                                      batch_size=_BATCH_PER_GPU,  # how many pairs per GPU
+                                                      train_record_dirs=_DATA_SOURCE,
                                                       data_format='channels_first')
     iterator_gpus = [] # data iterators for different GPUs
     next_element_gpus = [] # element getter for different GPUs
