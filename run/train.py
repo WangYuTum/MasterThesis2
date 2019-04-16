@@ -21,14 +21,14 @@ from data_util.bbox_helper import blend_search_seg_mask
 from data_util.bbox_helper import get_mask_center
 import time
 
-_NUM_TRAIN = 379432  # number of valid training pairs: YoutubeVOS(272459), PascalPlus(53354), Pascal(53619)
+_NUM_TRAIN = 520619  # number of valid training pairs: YoutubeVOS(272459), PascalPlus(53354), Pascal(53619), coco17(141187)
 _TRAINING = True
 _NUM_GPU = 4
-_NUM_SHARDS = 384  # number of tfrecords: YoutubeVOS(256), PascalPlus(64), Pascal(64)
-_BATCH_SIZE = 32  # how many pairs per iter
-_PAIRS_PER_EP = 250000
+_NUM_SHARDS = 512  # number of tfrecords: YoutubeVOS(256), PascalPlus(64), Pascal(64), coco17(128)
+_BATCH_SIZE = 128  # how many pairs per iter
+_PAIRS_PER_EP = 250000  # ideally 500000
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
-_EPOCHS = 35
+_EPOCHS = 45
 _WARMUP_EP = 5 # number of epochs for warm up
 _BN_MOMENTUM = 0.995 # can be 0.9 for training on large dataset, default=0.997
 _BN_EPSILON = 1e-5 # default 1e-5
@@ -45,9 +45,10 @@ _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
 _DATA_SOURCE = ['/storage/slurm/wangyu/pascal_ecssd_mara_aug/tfrecord_train',
                 '/storage/slurm/wangyu/PascalVOC12/tfrecord_train',
-                '/storage/slurm/wangyu/youtube_vos/tfrecord_train']
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/all/youtube_vos_sgd.ckpt'
-_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/all/'
+                '/storage/slurm/wangyu/youtube_vos/tfrecord_train',
+                '/storage/slurm/wangyu/coco/tfrecord_train']
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/no_decoder2/bbox_mask_sgd.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/no_decoder2/'
 _SAVE_CHECKPOINT_EP = 1
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
@@ -144,9 +145,9 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                     ################# summaries #################
                     tf.summary.image(name='logits', tensor=tf.transpose(score_logits, [0,2,3,1]))
                     loss_mask, loss_score = model.loss_score_mask(batch=_BATCH_PER_GPU, score_map=score_logits,
-                                                                  score_gt=score,
-                                                 score_weight=score_weight, mask_logits=mask_logits, gt_mask=gt_masks,
-                                                                  gt_mask_weights=gt_masks_weight, alpha=1.0, bete=1.0,
+                                                                  score_gt=score, score_weight=score_weight,
+                                                                  mask_logits=mask_logits, gt_mask=gt_masks,
+                                                                  gt_mask_weights=gt_masks_weight, alpha=1.0, bete=8.0,
                                                                   scope=scope)
                     # minimize score loss for 0-5 ep, minimize mask loss for 5-10 ep, minimize all after 10 ep
                     loss = tf.cond(tf.math.greater(global_step, iters_per_epoch * 5), lambda: loss_mask,
