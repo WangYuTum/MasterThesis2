@@ -21,12 +21,12 @@ from data_util.bbox_helper import blend_search_seg_mask
 from data_util.bbox_helper import get_mask_center
 import time
 
-_NUM_TRAIN = 272459 # TODO: number of valid training pairs, 272459-YoutubeVOS
+_NUM_TRAIN = 379432  # number of valid training pairs: YoutubeVOS(272459), PascalPlus(53354), Pascal(53619)
 _TRAINING = True
 _NUM_GPU = 4
-_NUM_SHARDS = 256 # TODO: number of tfrecords, 256-YoutubeVOS
-_BATCH_SIZE = 64  # how many pairs per iter
-_PAIRS_PER_EP = 250000 # TODO: number of pairs per ep, 250000-YoutubeBOS
+_NUM_SHARDS = 384  # number of tfrecords: YoutubeVOS(256), PascalPlus(64), Pascal(64)
+_BATCH_SIZE = 32  # how many pairs per iter
+_PAIRS_PER_EP = 250000
 _BATCH_PER_GPU = int(_BATCH_SIZE / _NUM_GPU) # how many pairs per GPU
 _EPOCHS = 35
 _WARMUP_EP = 5 # number of epochs for warm up
@@ -43,9 +43,11 @@ else:
 
 _ADAM_EPSILON = 0.01 # try 1.0, 0.1, 0.01
 _MOMENTUM_OPT = 0.9 # momentum for optimizer
-_DATA_SOURCE =  '/storage/slurm/wangyu/youtube_vos/tfrecord_train' # TODO: YoubuteVOS
-_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/youtube_vos_sgd/youtube_vos_sgd.ckpt'
-_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/youtube_vos_sgd/'
+_DATA_SOURCE = ['/storage/slurm/wangyu/pascal_ecssd_mara_aug/tfrecord_train',
+                '/storage/slurm/wangyu/PascalVOC12/tfrecord_train',
+                '/storage/slurm/wangyu/youtube_vos/tfrecord_train']
+_SAVE_CHECKPOINT = '/storage/slurm/wangyu/guide_mask/chkp/all/youtube_vos_sgd.ckpt'
+_SAVE_SUM = '/storage/slurm/wangyu/guide_mask/tfboard/all/'
 _SAVE_CHECKPOINT_EP = 1
 _SAVE_SUM_ITER = 20
 config_gpu = tf.ConfigProto()
@@ -62,8 +64,8 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
     # Prepare data pipeline for multiple GPUs
     #######################################################################
     datasets = mask_prop_train_pipeline.build_dataset(num_gpu=_NUM_GPU,
-                                                      batch_size=_BATCH_PER_GPU, # how many pairs per GPU
-                                                      train_record_dir=_DATA_SOURCE,
+                                                      batch_size=_BATCH_PER_GPU,  # how many pairs per GPU
+                                                      train_record_dirs=_DATA_SOURCE,
                                                       data_format='channels_first')
     iterator_gpus = [] # data iterators for different GPUs
     next_element_gpus = [] # element getter for different GPUs
@@ -125,11 +127,7 @@ with tf.Graph().as_default(), tf.device('/cpu:0'):
                                                        batch=_BATCH_PER_GPU)
                     tf.summary.image(name='templar_bbox_mask', tensor=templar_bbox_sum)
                     tf.summary.image(name='search_bbox', tensor=search_bbox_sum)
-                    tf.summary.image(name='search_gauss_prior', tensor=tf.transpose(search_img_mask[:,3:4,:,:], [0,2,3,1]))
-                    #search_mask_center = get_mask_center(search_img_mask[:,4:5,:,:], batch=_BATCH_PER_GPU) # [n, 2]
-                    #masked_search_seg = blend_search_seg_mask(img_search=search_img_mask[:,0:3,:,:], gt_masks=gt_masks,
-                    #                                          centers=search_mask_center, batch=_BATCH_PER_GPU) # [n*13, 127, 127, 3]
-                    # tf.summary.image(name='search_seg_mask', tensor=masked_search_seg, max_outputs=9)
+                    # tf.summary.image(name='search_gauss_prior', tensor=tf.transpose(search_img_mask[:,3:4,:,:], [0,2,3,1]))
                     tf.summary.image(name='score',
                                      tensor=tf.transpose(tf.cast(score, tf.uint8) * 255, [0, 2, 3, 1]))
 
