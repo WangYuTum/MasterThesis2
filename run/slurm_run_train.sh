@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bbox_mask_prop_gpu4_b64
+#SBATCH --job-name=bbox_mask_prop_gpu4_b128
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=128GB
