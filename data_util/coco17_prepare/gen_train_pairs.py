@@ -11,6 +11,8 @@ The complete procedure:
         * Generate 20 pairs
 
 We must sample the training pairs to get a final training list. See sample_pairs.py under the same dir.
+
+NOTE: Actually generated pairs: 53625
 '''
 
 from __future__ import absolute_import

@@ -8,13 +8,15 @@ Sample a number of training pairs, and save the sampled list as:
  However, there might be multiple objects within each image/mask pair, and we must sample the objects.
 
  Sampling procedure:
-    for each obj_dir:                                                   --> ???
-        randomly select 10 pairs out of 20:                             --> 10
-            randomly select 5 object_id                                 --> 2~5
+    for each obj_dir:                                            --> 10725
+        select all 5 pairs out of 5:                             --> 5
+            select all 5 object_id                               --> 1~5
 
-After the sampling, there will be 50000 ~ 250000 training pairs
+After the sampling, there will be 53625 ~ 268125 training pairs
 NOTE that we must filter small bbox/mask when generating tfrecords
 The object_ids within a image/mask pair might not be continuous, they also need to be dealt with when generating tfrecords
+
+NOTE: Actually sampled pairs: 141187
 '''
 
 from __future__ import absolute_import
@@ -26,7 +28,7 @@ import numpy as np
 from PIL import Image
 
 BASE_DIR = '/storage/slurm/wangyu/coco/'
-NUM_SEG_TRAIN = 5000  # TODO: to be determined
+NUM_SEG_TRAIN = 10725  # num of train_pair dirs
 
 
 def main():
@@ -34,7 +36,7 @@ def main():
     aug_dirs = sorted([os.path.join(data_dir, obj_dir_name) for obj_dir_name in os.listdir(data_dir) if \
                        os.path.isdir(os.path.join(data_dir, obj_dir_name))])
     if len(aug_dirs) != NUM_SEG_TRAIN:
-        print('Num of obj_dirs {} != num of expected {}'.format(len(aug_dirs), NUM_SEG_TRAIN))
+        raise ValueError('Num of obj_dirs {} != num of expected {}'.format(len(aug_dirs), NUM_SEG_TRAIN))
 
     # sampling
     sample_list = []
@@ -53,45 +55,39 @@ def main():
             raise ValueError('Num of imgsR {} != num of segsR {} for {}'.format(len(imgsR), len(segsR), aug_dir))
         if len(imgsL) != len(imgsR):
             raise ValueError('Num of imgsL {} != num of imgsR {} for {}'.format(len(imgsL), len(imgsR), aug_dir))
-        if len(imgsL) != 50:
-            raise ValueError('Num of imgs {} != 50 for {}'.format(len(imgsL), aug_dir))
+        if len(imgsL) != 5:
+            raise ValueError('Num of imgs {} != 5 for {}'.format(len(imgsL), aug_dir))
 
-        # random permutation
+        # random permutation and select 5 pairs
         permut_order = np.random.permutation(len(imgsL))
         re_imgsL = [imgsL[i] for i in permut_order]
         re_imgsR = [imgsR[i] for i in permut_order]
         re_segsL = [segsL[i] for i in permut_order]
         re_segsR = [segsR[i] for i in permut_order]
-        re_imgsL = re_imgsL[0:10]
-        re_imgsR = re_imgsR[0:10]
-        re_segsL = re_segsL[0:10]
-        re_segsR = re_segsR[0:10]
+        re_imgsL = re_imgsL[0:5]
+        re_imgsR = re_imgsR[0:5]
+        re_segsL = re_segsL[0:5]
+        re_segsR = re_segsR[0:5]
 
         # for each training pair, get all object ids
-        for pair_id in range(10):
+        for pair_id in range(5):
             imgL, imgR, segL, segR = re_imgsL[pair_id], re_imgsR[pair_id], re_segsL[pair_id], re_segsR[pair_id]
             seg_idsL = np.unique(np.array(Image.open(segL)))
             seg_idsR = np.unique(np.array(Image.open(segR)))
-            if len(seg_idsL) < 2:
-                raise ValueError('Number of seg_ids {} less than 2 for {}'.format(seg_idsL, segL))
-            if seg_idsL != seg_idsR:
-                raise ValueError('seg_idsL {} != seg_idsR {} for {}'.format(seg_idsL, seg_idsR, segL))
-            if (not 0 in seg_idsL) or (not 1 in seg_idsL):
+            if not np.array_equal(seg_idsL, seg_idsR):
+                # raise ValueError('seg_idsL {} != seg_idsR {} for {}'.format(seg_idsL, seg_idsR, segL))
+                # get intersection over the two
+                seg_idsL = list(set(seg_idsL) & set(seg_idsR))
+            if not 0 in seg_idsL:
                 raise ValueError('Seg labels {} not valid for {}'.format(seg_idsL, segL))
-            # get number of objects in this training pair
-            num_objs = len(seg_idsL) - 1
-            if num_objs == 1:
-                # only a single object, check/set object_id=1, and save the pair
-                if seg_idsL[-1] != 1:
-                    raise ValueError('Object id {} != 1 for {}'.format(seg_idsL[-1], segL))
-                sample_list.append([imgL, segL, imgR, segR, 1])
+            if len(seg_idsL) < 2:
+                print('Seg labels {} has object_ids < 2 for {}'.format(seg_idsL, segL))
+                continue
+            # pick all object_id
+            obj_ids = seg_idsL[1:]
+            for obj_id in obj_ids:
+                sample_list.append([imgL, segL, imgR, segR, obj_id])
                 count += 1
-            else:
-                # has >=2 objects within the pair, pick all object_id
-                obj_ids = seg_idsL[1:]
-                for obj_id in obj_ids:
-                    sample_list.append([imgL, segL, imgR, segR, obj_id])
-                    count += 1
 
     # save sampled list
     num_samples = len(sample_list)
