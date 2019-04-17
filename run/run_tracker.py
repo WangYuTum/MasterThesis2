@@ -22,16 +22,28 @@ sys.path.append('..')
 from core import resnet
 from run import tracker
 from data_util.vot16_helper import region_to_bbox, open_img, draw_bbox
+from data_util.youtube_vos_helper import get_masks, bbox_from_mask
+
+sequence_name = '0c7a4680db'
 
 
 ######### load images/gt_box ##########
-video_dir0 = '/work/wangyu/vot2016-val/cfnet-validation/vot2016_ball1'
-save_dir = '/work/wangyu/vot2016-val/results/vot2016_ball1'
-gt_file = os.path.join(video_dir0, 'groundtruth.txt')
 
-frame_list = sorted(glob.glob(os.path.join(video_dir0, '*.jpg')))
-gt_list = np.genfromtxt(gt_file, delimiter=',')
-print('number_frames: {}, number_gt {}'.format(len(frame_list), len(gt_list)))
+# get ready files
+video_dir0 = '/storage/slurm/wangyu/youtube_vos/valid/JPEGImages/' + sequence_name
+save_dir = '/work/wangyu/youtube_vos/valid/results/no_decoder1/' + sequence_name
+gt_file = '/storage/slurm/wangyu/youtube_vos/valid/Annotations/' + sequence_name + '/00040.png'  # segmentation mask
+frame_list = sorted(glob.glob(os.path.join(video_dir0, '*.jpg')))  # images
+
+# get ready gts
+gt_list = []
+gt_masks = get_masks(gt_file)  # list of binary masks: [mask0, mask1, ...] as hxwx1
+gt_bboxs = bbox_from_mask(gt_masks)  # list of tight bboxs: [bbox0, bbox1, ...] as [xmin, ymin, xmax, ymax]
+for i in range(len(gt_masks)):
+    gt_list.append([gt_masks[i], gt_bboxs[i]])  # a list of gt pairs: [(mask0, bbox0), (mask1, bbox1), ...]
+print('num of test frames: {}, number of gts: {}'.format(len(frame_list), len(gt_list)))
+
+# TODO
 gt0 = region_to_bbox(gt_list[0], center=False) # [xmin, ymin, w, h]
 # draw gt0 bbox and save
 print('Init bbox positions: {}'.format([gt0[0], gt0[1], gt0[0]+gt0[2], gt0[1]+gt0[3]]))
