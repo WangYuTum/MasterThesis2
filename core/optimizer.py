@@ -91,6 +91,8 @@ def apply_lr(grads_vars, global_step, iters_per_ep):
             head_vars.append((var[0], var[1]))
             all_vars.append((var[0], var[1]))
         else: # backbone vars
+            # decrease lr by 10x
+            var[0] = var[0] * 0.1
             all_vars.append((var[0], var[1]))
 
     return head_vars, all_vars
