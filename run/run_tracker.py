@@ -28,7 +28,7 @@ sequence_name = str(sys.argv[1])
 
 ######### load images/gt_box ##########
 video_dir0 = '/work/wangyu/vot2016-val/cfnet-validation/' + sequence_name
-save_dir = '/work/wangyu/vot2016-val/results/iter12496_ep8/' + sequence_name
+save_dir = '/work/wangyu/vot2016-val/results/sgd5/iter73414_ep47/' + sequence_name
 
 gt_file = os.path.join(video_dir0, 'groundtruth.txt')
 frame_list = sorted(glob.glob(os.path.join(video_dir0, '*.jpg')))
@@ -45,7 +45,7 @@ draw_bbox(img0_obj, [gt0[0], gt0[1], gt0[0] + gt0[2], gt0[1] + gt0[3]], save_dir
 trajectory = []
 trajectory.append([gt0[0], gt0[1], gt0[0] + gt0[2], gt0[1] + gt0[3]])
 tk = tracker.Tracker(num_templars=1,
-                     chkp='/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd4/imgnetvid_4gpu.ckpt-12496')
+                     chkp='/storage/slurm/wangyu/imagenet15_vid/chkp/imgnetvid_4gpu_sgd5/imgnetvid_4gpu.ckpt-73414')
 sum_writer = tf.summary.FileWriter(logdir=save_dir, graph=tk._sess.graph)
 init_box = [[gt0[0], gt0[1], gt0[0] + gt0[2], gt0[1] + gt0[3]]]
 tk.init_tracker(init_img=np.expand_dims(img0_arr, 0),  # [1, h, w, 3], pixel values 0-255
