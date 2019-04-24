@@ -7,6 +7,13 @@ cross-correlation between templar feature patch and search sub-window. Inspired 
  via mask propagation. We believe that tracking object pixels is feasible even if the object motion is non-rigid as long as the model is trained using a large
  amount of data. Flownet \[[5](https://arxiv.org/abs/1504.06852)\] is a good example of tracking scene pixels from one frame to another regardless of object categories.
  
+
+## New Branch: parts_track
+NOTE that this branch only works for DAVIS2016 single object segmentation:
+    * This branch generates object parts and track parts through the entire video
+    * This branch assemble all tracked parts into a single attention mask
+    * The assembled attention mask is used for segmentation refinement
+ 
 ## Important Notes
 * From now on, all newly created branches from the master branch implement multi-GPU model
 
