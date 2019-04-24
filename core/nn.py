@@ -465,8 +465,8 @@ def get_resnet50v2_backbone_vars():
     """
     return backbone_dict
 
-def get_siamfc_vars(trainable=False):
-    # TODO: network structure changed: mask branch added
+
+def get_siammask_vars(trainable=False):
     '''
     Get a list of vars to restore SiamFC weights (from init_conv to pyramid outs)
     :return: var dict
@@ -474,19 +474,35 @@ def get_siamfc_vars(trainable=False):
 
     # get backbone of ResNet50v2
     var_dict = get_resnet50v2_backbone_vars()
+
+    # get adjustment layers
     with tf.variable_scope('temp_adjust', reuse=True):
         var_dict['temp_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
     with tf.variable_scope('search_adjust', reuse=True):
         var_dict['search_adjust/kernel'] = tf.get_variable('kernel', trainable=trainable)
-    with tf.variable_scope('cc_layer', reuse=True):
-        var_dict['cc_layer/beta'] = tf.get_variable('beta', trainable=trainable)
-        var_dict['cc_layer/gamma'] = tf.get_variable('gamma', trainable=trainable)
-        var_dict['cc_layer/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
-        var_dict['cc_layer/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
+    # no learnable parameters in cc_layer
+
+    # score branch
+    with tf.variable_scope('score_branch', reuse=True):
+        var_dict['score_branch/beta'] = tf.get_variable('beta', trainable=trainable)
+        var_dict['score_branch/gamma'] = tf.get_variable('gamma', trainable=trainable)
+        var_dict['score_branch/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
+        var_dict['score_branch/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
         with tf.variable_scope('conv5', reuse=True):
-            var_dict['cc_layer/conv5/kernel'] = tf.get_variable('kernel', trainable=trainable)
+            var_dict['score_branch/conv5/kernel'] = tf.get_variable('kernel', trainable=trainable)
         with tf.variable_scope('conv6', reuse=True):
-            var_dict['cc_layer/conv6/kernel'] = tf.get_variable('kernel', trainable=trainable)
+            var_dict['score_branch/conv6/kernel'] = tf.get_variable('kernel', trainable=trainable)
+
+    # mask branch
+    with tf.variable_scope('mask_branch', reuse=True):
+        var_dict['mask_branch/beta'] = tf.get_variable('beta', trainable=trainable)
+        var_dict['mask_branch/gamma'] = tf.get_variable('gamma', trainable=trainable)
+        var_dict['mask_branch/moving_mean'] = tf.get_variable('moving_mean', trainable=trainable)
+        var_dict['mask_branch/moving_variance'] = tf.get_variable('moving_variance', trainable=trainable)
+        with tf.variable_scope('conv5', reuse=True):
+            var_dict['mask_branch/conv5/kernel'] = tf.get_variable('kernel', trainable=trainable)
+        with tf.variable_scope('conv6', reuse=True):
+            var_dict['mask_branch/conv6/kernel'] = tf.get_variable('kernel', trainable=trainable)
 
     return var_dict
 
