@@ -237,7 +237,7 @@ def get_mask_from_bbox(seg_arr, bbox):
     original_w = original_size[1]
     seg_obj = Image.fromarray(seg_arr)  # (854, 480) as [width, height]
     crop_obj = seg_obj.crop(
-        box=(bbox[0], bbox[1], bbox[2], bbox[3]))  # in_arg: (left, upper, right, lower), out_img: (bbox_w, bbox_h) TODO
+        box=(bbox[0], bbox[1], bbox[2], bbox[3]))  # in_arg: (left, upper, right, lower), out_img: (bbox_w, bbox_h)
     pad_left = bbox[0]
     pad_top = bbox[1]
     pad_right = original_w - bbox[2]
