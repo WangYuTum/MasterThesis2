@@ -135,7 +135,7 @@ def gen_parts(img_path, anno_path, save_path, save_color_path):
                 if h_coord >= min_h_idx and h_coord < max_h_idx and w_coord >= min_w_idx and w_coord < max_w_idx:
                     coor_list.append([h_list[i], w_list[i]])
             # randomly sample block_size * block_size times
-            sample_nums = block_size * block_size / 2
+            sample_nums = block_size * block_size / 4
             tmp_list = []
             if len(coor_list) > 2:
                 while sample_nums > 0:
@@ -169,7 +169,7 @@ def gen_parts(img_path, anno_path, save_path, save_color_path):
     print('Num of bbox after NMS: {}'.format(num_parts))
     # NMS again if number of bbox > 300
     nms_th = 0.97
-    while num_parts > 400:
+    while num_parts > 300:
         tmp_list = []
         for i in range(num_parts):
             center_h = int((valid_bbox[i][3] - valid_bbox[i][1]) / 2) + valid_bbox[i][1]

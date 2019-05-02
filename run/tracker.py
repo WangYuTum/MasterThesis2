@@ -21,7 +21,7 @@ class Tracker():
     def __init__(self, num_templars, chkp):
 
         # build graph and ops once for all
-        self._mask_threshold = 0.65
+        self._mask_threshold = 0.5
         self._R_MEAN = 123.68
         self._G_MEAN = 116.78
         self._B_MEAN = 103.94
@@ -31,21 +31,26 @@ class Tracker():
         self._pre_locations = [] # np array, # store the previous bbox positions as a list, each ele is a list: [xmin, ymin, xmax, ymax]
         self._scale_templars = [] # store the scale factor for each templar as tensor
         self._scale_templars_val = None # save values of templar scale as np array
-        self._templar_img = tf.placeholder(dtype=tf.float32, shape=[1, None, None, 4], name='templars_in')
+        self._templar_img = tf.placeholder(dtype=tf.float32, shape=[1, 480, 854, 3], name='templars_in')
+        self._templar_masks = tf.placeholder(dtype=tf.float32, shape=[self._num_templars, 480, 854, 1],
+                                             name='templar_masks_in')
         self._templar_bbox = tf.placeholder(dtype=tf.int32, shape=[self._num_templars, 4], name='templars_bbox_in') # for N box, [xmin, ymin, xmax, ymax]
         self._in_is_templar = tf.placeholder(dtype=tf.bool, shape=[], name='input_bool')  # true if input is templar batches
-        self._search_img = tf.placeholder(dtype=tf.float32, shape=[1, None, None, 3], name='search_in')
+        self._search_img = tf.placeholder(dtype=tf.float32, shape=[1, 480, 854, 3], name='search_in')
         self._search_bbox = tf.placeholder(dtype=tf.int32, shape=[self._num_templars, 4], name='search_bbox_in') # for N box, [xmin, ymin, xmax, ymax]
 
         # crop templar image to multiple patches according to given bbox, and rescale to [127, 127]
         templar_imgs, self._scale_templars = self.crop_templars(self._templar_img,
-                                                                self._templar_bbox)  # in [1, h, w, 4], out [n, 127, 127, 4]
-        tf.summary.image(name='templar_patch', tensor=self.blend_rgb_mask(templar_imgs))
+                                                                self._templar_masks,
+                                                                self._templar_bbox)  # out [n, 127, 127, 4]
+        # tf.summary.image(name='templar_patch', tensor=self.blend_rgb_mask(templar_imgs))
         # crop search image to multiple patches according to previous bbox predictions
         search_imgs, search_centers = self.crop_searches(self._search_img,
                                                          self._search_bbox)  # in [1, h, w, 3], out [n, 255, 255, 4]
         # tf.summary.image(name='search_patch', tensor=self.blend_rgb_mask(search_imgs))
         # normalize image mean
+        print('tmp shape: {}'.format(templar_imgs.get_shape()))
+        print('search shape: {}'.format(search_imgs.get_shape()))
         templar_imgs = self.mean_image_subtraction(templar_imgs, self._CHANNEL_MEANS, 3)  # [n, 127, 127, 4]
         search_imgs = self.mean_image_subtraction(search_imgs, self._CHANNEL_MEANS, 3)  # [n, 255, 255, 4]
 
@@ -67,15 +72,17 @@ class Tracker():
         self._response_maps, mask_logits = siam_model.build_cc_mask(z_feat=self._templar_kernels, x_feat=x_feat,
                                                                     training=False)
         self._response_maps = tf.transpose(self._response_maps, [0, 2, 3, 1])  # [num_templars, 17, 17, 1]
-        tf.summary.image(name='score_map', tensor=self._response_maps)
+        #tf.summary.image(name='score_map', tensor=self._response_maps)
         self._response_maps = tf.sigmoid(self._response_maps)  # [num_templars, 17, 17, 1], probability maps
         # select the mask where response achieves the maximum, and resize the selected masks to original image scale
+        print('Building mask selection ...')
         self._masks = self.select_masks(self._response_maps, mask_logits, search_imgs[:, 0:3, :, :], search_centers,
                                         self._search_img)  # [num_templars, 127, 127, 1] as probability map
+        print('Mask selection done.')
         # self._masks = self.rescale_masks(self._masks) # [mask0, mask1, ...] of length num_templars, each mask has shape [h,w,1]
         # upsample response maps to get more accurate localisation bbox
         self._response_maps = self.upsample_response(self._response_maps) # outputs [n, 17*scale, 17*scale, 1] response map
-        self._sum_op = tf.summary.merge_all()
+        #self._sum_op = tf.summary.merge_all()
         init_op = tf.global_variables_initializer()
         print('Built tracking graph done.')
 
@@ -98,10 +105,12 @@ class Tracker():
         print('All variables initialized.')
         print('Init run session done.')
 
-    def init_tracker(self, init_img, init_bbox):
+    def init_tracker(self, init_img, init_masks, init_bbox, pre_bbox):
         '''
-        :param init_img: [1, h, w, 4], pixel values 0-255
+        :param init_img: [1, h, w, 3], pixel values 0-255
+        :param init_masks: [n, h, w, 1], n = num_templars
         :param init_bbox: [[xmin, ymin, xmax, ymax], [xmin, ymin, xmax, ymax], ...], int
+        :param pre_bbox: [[xmin, ymin, xmax, ymax], [xmin, ymin, xmax, ymax], ...], int
         :return: None
         '''
 
@@ -109,14 +118,15 @@ class Tracker():
         # this will set: self._scale_templars, self._templar_kernels, self._pre_locations
         print('Init tracker ...')
         for i in range(self._num_templars):
-            self._pre_locations.append(init_bbox[i])
+            self._pre_locations.append(pre_bbox[i])
         _, scale_templars_= self._sess.run([self._assign_templar_kernels, self._scale_templars],
-                                           feed_dict={self._templar_img: init_img,  # [1, h, w, 4]
+                                           feed_dict={self._templar_img: init_img,  # [1, h, w, 3]
+                                                      self._templar_masks: init_masks,  # [n, h, w, 1]
                                                        self._templar_bbox: init_bbox,
                                                        self._in_is_templar: True,
                                                       self._search_img: init_img[:, :, :, 0:3],
                                                       # will not be used in this run
-                                                      self._search_bbox: init_bbox})  # will not be used in this run
+                                                      self._search_bbox: pre_bbox})  # will not be used in this run
         self._scale_templars_val = scale_templars_
         print('Init tracker done! Ready to track!')
 
@@ -139,19 +149,20 @@ class Tracker():
         # update self._pre_locations after processing each frame, the actual displacement is the displacement_response*8/scale_templar
         print('Track frame %d'%frame_id)
         # run outputs: # [n, 272, 272, 1], [n, 127, 127, 1]
-        [response_maps_, masks_, sum_op_] = self._sess.run([self._response_maps, self._masks, self._sum_op],
+        [response_maps_, masks_] = self._sess.run([self._response_maps, self._masks],
                                         feed_dict={self._search_img: search_img,
                                                    self._search_bbox: self._pre_locations,
                                                    self._in_is_templar: False,
                                                    self._templar_img: init_img, # will not be used in this run
                                                    self._templar_bbox: init_box}) # will not be used in this run
         # process each response for each templar and get tracked bbox position
+        print('Run graph done!')
         tracked_bbox = []
         tracked_mask = []
         for i in range(self._num_templars):
             response = np.squeeze(response_maps_[i:i+1, :, :, :]) # [17*up_scale, 17*up_scale]
-            response = (1 - self._window_influence) * response + self._window_influence * self._window
-            mask = masks_[i]  # [h, w, 1], original search image size
+            # response = (1 - self._window_influence) * response + self._window_influence * self._window
+            mask = masks_[i]  # [h, w, 1], original search image size, np.float32
             # find maximum response
             r_max, c_max = np.unravel_index(response.argmax(),
                                             response.shape)
@@ -173,7 +184,7 @@ class Tracker():
             tracked_bbox.append(self._pre_locations[i])
             tracked_mask.append(mask)
 
-        return tracked_bbox, tracked_mask, response, sum_op_
+        return tracked_bbox, tracked_mask
 
     def select_masks(self, response_maps, mask_logits, search_imgs, search_centers, search_img):
         '''
@@ -197,11 +208,10 @@ class Tracker():
             max_h = tf.cast(indices / 17, tf.int32)
             max_w = tf.cast(indices % 17, tf.int32)
             mask_vec = mask_logits[temp_i:temp_i + 1, :, max_h:max_h + 1, max_w:max_w + 1]  # [1, 63*63, 1, 1]
-            # mask_vec = mask_logits[temp_i:temp_i + 1, :, max_w:max_w + 1, max_h:max_h + 1]  # [1, 63*63, 1, 1]
             mask = tf.reshape(mask_vec, [1, 63, 63, 1])
             mask = tf.image.resize_bilinear(mask, [127, 127])  # [1,127,127,1]
             mask_prob = tf.sigmoid(mask)  # [1,127,127,1] as probability map
-            mask_bin = tf.cast(tf.math.greater_equal(mask, 0.5), tf.uint8)
+            #mask_bin = tf.cast(tf.math.greater_equal(mask_prob, self._mask_threshold), tf.uint8)
             # put mask in search_rgb image
             mask_center = [128, 128] + [max_h - 8, max_w - 8] * 8  # [idx_h, idx_w]
             x_min = mask_center[1] - 63
@@ -210,16 +220,16 @@ class Tracker():
             left_pad = x_min
             bottom_pad = 255 - (y_min + 127)
             right_pad = 255 - (x_min + 127)
-            mask_padded = tf.pad(tensor=mask_bin,
+            mask_padded = tf.pad(tensor=mask_prob,
                                  paddings=[[0, 0], [top_pad, bottom_pad], [left_pad, right_pad], [0, 0]],
                                  mode='CONSTANT', name=None, constant_values=0)  # [1,255,255,1]
             with tf.control_dependencies([tf.debugging.assert_equal(tf.shape(mask_padded)[1], 255),
                                           tf.debugging.assert_equal(tf.shape(mask_padded)[2], 255)]):
                 mask_padded = tf.identity(mask_padded)
-            search_img = search_imgs[temp_i:temp_i + 1, :, :, :]  # [1, 3, 255, 255]
-            search_img = tf.transpose(search_img, [0, 2, 3, 1])  # [1, 255, 255, 3]
-            blended_search = self.blend_rgb_mask(tf.concat([search_img, tf.cast(mask_padded, tf.float32)], -1))
-            tf.summary.image(name='search_patch', tensor=blended_search)
+            # search_img = search_imgs[temp_i:temp_i + 1, :, :, :]  # [1, 3, 255, 255]
+            # search_img = tf.transpose(search_img, [0, 2, 3, 1])  # [1, 255, 255, 3]
+            # blended_search = self.blend_rgb_mask(tf.concat([search_img, tf.cast(mask_padded, tf.float32)], -1))
+            #tf.summary.image(name='search_patch', tensor=blended_search)
 
             ######################### Recover mask in original image ########################
             rescaled_h = tf.cast(tf.cast(original_h, tf.float32) * self._scale_templars[temp_i], tf.int32)
@@ -258,10 +268,10 @@ class Tracker():
                     [tf.debugging.assert_equal(tf.shape(new_mask)[1], rescaled_h, message='height'),
                      tf.debugging.assert_equal(tf.shape(new_mask)[2], rescaled_w, message='width')]):
                 new_mask = tf.identity(new_mask)  # [1, h', w', 1]
-            # rescale to original search image size
+            # rescale to original search image size TODO: can be done outside the tf graph to save memory
             new_mask = tf.image.resize_bilinear(images=new_mask, size=[original_h, original_w],
-                                                name='resize_search_mask')  # [1, h, w, 1]
-            new_mask = tf.cast(tf.math.greater_equal(new_mask, 0.5), tf.uint8)
+                                                name='resize_search_mask')  # [1, 480, 854, 1]
+            #new_mask = tf.cast(tf.math.greater_equal(new_mask, 0.5), tf.uint8)
             mask_list.append(new_mask)
 
         masks = tf.concat(mask_list, axis=0)  # [num_templars, h, w, 1]
@@ -364,15 +374,15 @@ class Tracker():
 
         return search_final
 
-
-    def crop_templars(self, img, bbox):
+    def crop_templars(self, img, masks, bbox):
         '''
-        :param img: [1, h, w, 4] tensor, float32
+        :param img: [1, h, w, 3] tensor, float32
+        :param masks: [n, h, w, 1] tensor, float32
         :param bbox: [n, 4] tensor int32, each bbox is [xmin, ymin, xmax, ymax]
         :return: [n, 127, 127, 4] tensor, [tmp0_s, tmp1_s, ..., tmpN_s] list
         '''
 
-        mean_rgb = tf.reduce_mean(img[:, :, :, 0:3])  # mean over RGB channels
+        mean_rgb = tf.reduce_mean(img)  # mean over RGB channels
         img_size = tf.shape(img)
         num_bbox = self._num_templars
         # get context margins for all bbox, and add context to them
@@ -395,29 +405,30 @@ class Tracker():
         right_pad = tf.maximum(tf.reduce_max(new_bboxs, 0)[2] - img_size[2] + 1, 0)
         top_pad = tf.abs(tf.minimum(tf.reduce_min(new_bboxs, 0)[1] - 1, 0))
         bottom_pad = tf.maximum(tf.reduce_max(new_bboxs, 0)[3] - img_size[1] + 1, 0)
-        img_minus_mean = img[:, :, :, 0:3] - mean_rgb  # [1,h,w,3]
+        img_minus_mean = img - mean_rgb  # [1,h,w,3]
         img_padded = tf.pad(tensor=img_minus_mean, paddings=[[0,0], [top_pad, bottom_pad],[left_pad, right_pad],[0,0]],
                             mode='CONSTANT', name=None, constant_values=0)
         img_padded = img_padded + mean_rgb  # [1,h,w,3]
-        mask_padded = tf.pad(tensor=img[:, :, :, 3:4],
-                             paddings=[[0, 0], [top_pad, bottom_pad], [left_pad, right_pad], [0, 0]],
-                             mode='CONSTANT', name=None, constant_values=0)  # [1,h,w,1]
-        img_padded = tf.concat([img_padded, mask_padded], -1)  # [1,h,w,4]
-        # now that img is padded, we must update bbox positions
-        for i in range(num_bbox):
-            new_bboxs[i][0] = new_bboxs[i][0] + left_pad
-            new_bboxs[i][1] = new_bboxs[i][1] + top_pad
-            new_bboxs[i][2] = new_bboxs[i][2] + left_pad
-            new_bboxs[i][3] = new_bboxs[i][3] + top_pad
+        masks_padded = tf.pad(tensor=masks,
+                              paddings=[[0, 0], [top_pad, bottom_pad], [left_pad, right_pad], [0, 0]],
+                              mode='CONSTANT', name=None, constant_values=0)  # [n,h,w,1]
         # crop templars for all bbox
         templars = []
         scale_f = []
         for i in range(num_bbox):
+            img_mask_i = tf.concat([img_padded, masks_padded[i:i + 1, :, :, :]], -1)  # [1,h,w,4]
+            # now that img is padded, we must update bbox positions
+            new_bboxs[i][0] = new_bboxs[i][0] + left_pad
+            new_bboxs[i][1] = new_bboxs[i][1] + top_pad
+            new_bboxs[i][2] = new_bboxs[i][2] + left_pad
+            new_bboxs[i][3] = new_bboxs[i][3] + top_pad
+
             height = new_bboxs[i][3]-new_bboxs[i][1]
             width = new_bboxs[i][2]-new_bboxs[i][0]
             with tf.control_dependencies([tf.debugging.assert_equal(height, width)]):
-                img_padded = tf.identity(img_padded)
-            tmp = tf.image.crop_to_bounding_box(image=img_padded, offset_height=new_bboxs[i][1], offset_width=new_bboxs[i][0],
+                img_mask_i = tf.identity(img_mask_i)
+            tmp = tf.image.crop_to_bounding_box(image=img_mask_i, offset_height=new_bboxs[i][1],
+                                                offset_width=new_bboxs[i][0],
                                                 target_height=height,
                                                 target_width=width)  # [1,h,w,4]
             # resize RGB and mask
@@ -486,17 +497,18 @@ class Tracker():
 
         if len(means) != num_channels:
             raise ValueError('len(means) must match the number of channels')
+        means = tf.expand_dims(tf.expand_dims(means, 0), 0)  # [1,1,3]
 
         # extract RGB channels
         new_imgs = []
         for temp_i in range(self._num_templars):
-            rgb_img = tf.squeeze(images[temp_i:temp_i + 1, :, :, 0:3], 0)  # [h, w, 3]
-            means = tf.expand_dims(tf.expand_dims(means, 0), 0)  # [1,1,3]
+            rgb_img = tf.squeeze(images[temp_i:temp_i + 1, :, :, 0:3], axis=0)  # [h, w, 3]
             new_img = rgb_img - means  # [h, w, 3]
             # assemble the mask channel
-            new_img = tf.concat([new_img, tf.squeeze(images[temp_i:temp_i + 1, :, :, 3:4], 0)], axis=-1)  # [h, w, 4]
+            mask_img = tf.squeeze(images[temp_i:temp_i + 1, :, :, 3:4], axis=0)
+            new_img = tf.concat([new_img, mask_img], axis=-1, name='concat_temp%d' % temp_i)  # [h, w, 4]
             new_imgs.append(new_img)
-        # stack all templars
+            # stack all templars
         out_imgs = tf.stack(new_imgs)  # [n, h, w, 4]
 
         return out_imgs
