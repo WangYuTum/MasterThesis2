@@ -204,6 +204,7 @@ valid_arr = np.array(save_indices)
 np.save(os.path.join(result_base, 'valid_indices', sequence_name, str(frame_id).zfill(5) + '.npy'), valid_arr)
 
 #### save tracked bbox, which will be used in the next frame
+print('save {} bbox.'.format(len(save_bbox)))
 save_bbox_arr = np.array(save_bbox)
 np.save(os.path.join(result_base, 'pre_bboxes', sequence_name, str(frame_id).zfill(5) + '.npy'), save_bbox_arr)
 
