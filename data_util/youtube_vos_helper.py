@@ -121,19 +121,19 @@ def draw_mul_bbox_mask(img_arr, mask_arrs, boxes, colors, indices, save_dir):
     '''
 
     num_bbox = len(boxes)
-    if len(mask_arrs) != len(boxes):
-        raise ValueError('Num of masks {} != num of boxes {}'.format(len(mask_arrs), len(boxes)))
+    # if len(mask_arrs) != len(boxes):
+    #    raise ValueError('Num of masks {} != num of boxes {}'.format(len(mask_arrs), len(boxes)))
 
     # blend masks
     blended = img_arr.astype(np.int32)
     for i in range(num_bbox):
-        mask_arr = mask_arrs[i][1]
+        #mask_arr = mask_arrs[i][1]
 
         # create redish mask
-        mask_r = mask_arr * 96
-        mask_g = mask_arr * 0
-        mask_b = mask_arr * 0
-        mask_rgb = np.concatenate([mask_r, mask_g, mask_b], axis=-1)  # [h,w,3], uint8
+        # mask_r = mask_arr * 96
+        # mask_g = mask_arr * 0
+        # mask_b = mask_arr * 0
+        #mask_rgb = np.concatenate([mask_r, mask_g, mask_b], axis=-1)  # [h,w,3], uint8
         # blended += mask_rgb.astype(np.int32)
         blended = np.clip(blended, 0, 255)
 

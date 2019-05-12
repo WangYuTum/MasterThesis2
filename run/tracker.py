@@ -76,8 +76,8 @@ class Tracker():
         self._response_maps = tf.sigmoid(self._response_maps)  # [num_templars, 17, 17, 1], probability maps
         # select the mask where response achieves the maximum, and resize the selected masks to original image scale
         print('Building mask selection ...')
-        self._masks = self.select_masks(self._response_maps, mask_logits, search_imgs[:, 0:3, :, :], search_centers,
-                                        self._search_img)  # [num_templars, 127, 127, 1] as probability map
+        # self._masks = self.select_masks(self._response_maps, mask_logits, search_imgs[:, 0:3, :, :], search_centers,
+        #                                self._search_img)  # [num_templars, 127, 127, 1] as probability map
         print('Mask selection done.')
         # self._masks = self.rescale_masks(self._masks) # [mask0, mask1, ...] of length num_templars, each mask has shape [h,w,1]
         # upsample response maps to get more accurate localisation bbox
@@ -149,7 +149,7 @@ class Tracker():
         # update self._pre_locations after processing each frame, the actual displacement is the displacement_response*8/scale_templar
         print('Track frame %d'%frame_id)
         # run outputs: # [n, 272, 272, 1], [n, 127, 127, 1]
-        [response_maps_, masks_] = self._sess.run([self._response_maps, self._masks],
+        [response_maps_] = self._sess.run([self._response_maps],
                                         feed_dict={self._search_img: search_img,
                                                    self._search_bbox: self._pre_locations,
                                                    self._in_is_templar: False,
@@ -162,7 +162,7 @@ class Tracker():
         for i in range(self._num_templars):
             response = np.squeeze(response_maps_[i:i+1, :, :, :]) # [17*up_scale, 17*up_scale]
             # response = (1 - self._window_influence) * response + self._window_influence * self._window
-            mask = masks_[i]  # [h, w, 1], original search image size, np.float32
+            #mask = masks_[i]  # [h, w, 1], original search image size, np.float32
             # find maximum response
             r_max, c_max = np.unravel_index(response.argmax(),
                                             response.shape)
@@ -182,9 +182,9 @@ class Tracker():
             self._pre_locations[i][3] = self._pre_locations[i][3] + disp_instance_feat[0]
             # save the tracked box
             tracked_bbox.append(self._pre_locations[i])
-            tracked_mask.append(mask)
+            # tracked_mask.append(mask)
 
-        return tracked_bbox, tracked_mask
+        return tracked_bbox  #, tracked_mask
 
     def select_masks(self, response_maps, mask_logits, search_imgs, search_centers, search_img):
         '''

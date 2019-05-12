@@ -127,10 +127,10 @@ print('tracker _scale_templars_val: {}'.format(tk._scale_templars_val[:5]))
 
 #########################################    tracking for frame_id    ######################################
 img_obj, img_arr = open_img(images_path[frame_id])  # img_arr: [480, 854, 3]
-tracked_bbox, tracked_mask = tk.track(init_img=np.expand_dims(img0_arr, 0),  # [1, 480, 854, 3]
-                                      init_box=init_bboxs,
-                                      search_img=np.expand_dims(img_arr, 0),  # [1, 480, 854, 3]
-                                      frame_id=frame_id)  # [[xmin, ymin, xmax, ymax], [xmin, ymin, xmax, ymax], ...]
+tracked_bbox = tk.track(init_img=np.expand_dims(img0_arr, 0),  # [1, 480, 854, 3]
+                        init_box=init_bboxs,
+                        search_img=np.expand_dims(img_arr, 0),  # [1, 480, 854, 3]
+                        frame_id=frame_id)  # [[xmin, ymin, xmax, ymax], [xmin, ymin, xmax, ymax], ...]
 print('Track done!')
 # build dirs for saving intermediate results
 frame_parts_dir = os.path.join(result_parts, sequence_name, str(frame_id).zfill(5))
@@ -155,20 +155,20 @@ save_bbox = []
 for i in range(init_num_bbox):
     if i in valid_indices:
         # get the tracked bbox and mask
-        prob_mask = np.squeeze(tracked_mask[valid_idx], -1)  # [480, 854], np.float32
-        bin_mask = prob_mask
-        bin_mask[bin_mask >= 0.65] = 1
-        bin_mask[bin_mask < 0.65] = 0
-        bin_mask = bin_mask.astype(np.uint8)  # [480, 854], binary mask, np.uint8
+        # prob_mask = np.squeeze(tracked_mask[valid_idx], -1)  # [480, 854], np.float32
+        # bin_mask = prob_mask
+        # bin_mask[bin_mask >= 0.65] = 1
+        # bin_mask[bin_mask < 0.65] = 0
+        # bin_mask = bin_mask.astype(np.uint8)  # [480, 854], binary mask, np.uint8
         tracked_box = tracked_bbox[valid_idx]
-        prob_mask, bin_mask = filter_bbox_mask(prob_mask, bin_mask, tracked_box)
-        prob_list.append(prob_mask)
+        # prob_mask, bin_mask = filter_bbox_mask(prob_mask, bin_mask, tracked_box)
+        #prob_list.append(prob_mask)
         #### save tracked parts
-        bin_mask_obj = Image.fromarray(bin_mask)
-        bin_mask_obj.putpalette([0, 0, 0, 192, 32, 32])
-        bin_mask_obj.save(os.path.join(frame_parts_dir, str(i).zfill(4) + '.png'))
-        draw_bbox_mask(img_arr, np.expand_dims(bin_mask, -1), tracked_bbox[valid_idx],
-                       os.path.join(frame_parts_color_dir, str(i).zfill(4) + '.jpg'), gt_bool=False)
+        # bin_mask_obj = Image.fromarray(bin_mask)
+        # bin_mask_obj.putpalette([0, 0, 0, 192, 32, 32])
+        # bin_mask_obj.save(os.path.join(frame_parts_dir, str(i).zfill(4) + '.png'))
+        # draw_bbox_mask(img_arr, np.expand_dims(bin_mask, -1), tracked_bbox[valid_idx],
+        #               os.path.join(frame_parts_color_dir, str(i).zfill(4) + '.jpg'), gt_bool=False)
         #### save valid indices and bbox
         save_indices.append(i)
         save_bbox.append(tracked_box)
@@ -186,7 +186,7 @@ for i in range(init_num_bbox):
 #### draw all bbox
 if not os.path.exists(os.path.join(result_parts_color, sequence_name, 'all')):
     os.mkdir(os.path.join(result_parts_color, sequence_name, 'all'))
-draw_mul_bbox_mask(img_arr=img_arr, mask_arrs=tracked_mask,
+draw_mul_bbox_mask(img_arr=img_arr, mask_arrs=0,
                    boxes=tracked_bbox, colors=box_colors, indices=0,
                    save_dir=os.path.join(result_parts_color, sequence_name, 'all', str(frame_id).zfill(5) + '.jpg'))
 
